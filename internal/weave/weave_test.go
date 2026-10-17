@@ -24,7 +24,7 @@ func TestWeaveTartan(t *testing.T) {
 		{
 			name:       "cross twill preserves diagonal orientation",
 			pattern:    "a#FF0000b#00FF00[a1]b1",
-			twill:      crossTwill,
+			twill:      CrossTwill,
 			wantWidth:  2,
 			wantHeight: 2,
 			wantPixels: [][]color.Color{
@@ -35,7 +35,7 @@ func TestWeaveTartan(t *testing.T) {
 		{
 			name:       "horizontal twill puts colours in horizontal bands",
 			pattern:    "a#FF0000b#00FF00[a1]b1",
-			twill:      horizontalTwill,
+			twill:      HorizontalTwill,
 			wantWidth:  2,
 			wantHeight: 2,
 			wantPixels: [][]color.Color{
@@ -46,7 +46,7 @@ func TestWeaveTartan(t *testing.T) {
 		{
 			name:       "vertical twill puts colours in vertical bands",
 			pattern:    "a#FF0000b#00FF00[a1]b1",
-			twill:      verticalTwill,
+			twill:      VerticalTwill,
 			wantWidth:  2,
 			wantHeight: 2,
 			wantPixels: [][]color.Color{
@@ -57,7 +57,7 @@ func TestWeaveTartan(t *testing.T) {
 		{
 			name:       "multiple thread runs produce natural dimensions and expected cells",
 			pattern:    "a#FF0000b#00FF00[a2b1]b1a2",
-			twill:      crossTwill,
+			twill:      CrossTwill,
 			wantWidth:  6,
 			wantHeight: 6,
 			wantPixels: [][]color.Color{
@@ -104,7 +104,7 @@ func TestWeaveTartan(t *testing.T) {
 func TestWeaveTartanNilSett(t *testing.T) {
 	t.Parallel()
 
-	got, err := Tartan(nil, crossTwill)
+	got, err := Tartan(nil, CrossTwill)
 	if err == nil {
 		t.Fatal("WeaveTartan(nil) error = nil, want an error")
 	}
@@ -121,7 +121,7 @@ func TestWeaveTartanSingleThreadUsesSameWarpAndWeft(t *testing.T) {
 		t.Fatalf("Parse() error = %v, want nil", err)
 	}
 
-	got, err := Tartan(sett, crossTwill)
+	got, err := Tartan(sett, CrossTwill)
 	if err != nil {
 		t.Fatalf("WeaveTartan() error = %v, want nil", err)
 	}
