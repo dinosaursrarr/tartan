@@ -19,8 +19,18 @@ import (
 
 const maxDimension = 1024
 
+// Handler providers the API interface.
+type Handler struct {
+	cache Cache
+}
+
+// NewHandler creates a new handler so we can serve the API.
+func NewHandler(cache Cache) *Handler {
+	return &Handler{cache: cache}
+}
+
 // Handle parses an incoming request and returns a rendered image.
-func Handle(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		log.Printf("bad request: had method %v", r.Method)
 		w.Header().Set("Allow", "GET")
@@ -31,6 +41,26 @@ func Handle(w http.ResponseWriter, r *http.Request) {
 	params := r.URL.Query()
 
 	pattern := params.Get("pattern")
+	formatParam := params.Get("format")
+	if formatParam == "" {
+		formatParam = "png"
+	}
+	format, ok := parseFormat(formatParam)
+	if !ok {
+		log.Printf("bad request: could not parse format %v", formatParam)
+		http.Error(w, "could not parse format", http.StatusBadRequest)
+		return
+	}
+
+	cacheKey := cacheKey{pattern: pattern, format: format}
+	if h.cache != nil {
+		res, ok := h.cache.Get(cacheKey)
+		if ok {
+			_ = serveBytes(w, res.bytes, res.contentType)
+			return
+		}
+	}
+
 	sett, err := parse.Parse(pattern)
 	if err != nil {
 		log.Printf("bad request: could not parse pattern: %v", err)
@@ -50,17 +80,6 @@ func Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	formatParam := params.Get("format")
-	if formatParam == "" {
-		formatParam = "png"
-	}
-	format, ok := parseFormat(formatParam)
-	if !ok {
-		log.Printf("bad request: could not parse format: %v", err)
-		http.Error(w, "could not parse format", http.StatusBadRequest)
-		return
-	}
-
 	woven, err := weave.Tartan(sett, weave.CrossTwill)
 	if err != nil {
 		log.Printf("could not weave pattern: %v", err)
@@ -68,16 +87,22 @@ func Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var cacheEntry *cacheEntry
 	switch format {
 	case pngFormat:
-		servePNG(w, woven)
+		cacheEntry = servePNG(w, woven)
 	case gifFormat:
-		serveGIF(w, woven, len(sett.Palette()))
+		cacheEntry = serveGIF(w, woven, len(sett.Palette()))
 	case webpFormat:
-		serveWEBP(w, woven)
+		cacheEntry = serveWEBP(w, woven)
 	case unspecifiedImageFormat:
 		log.Printf("unexpected state: encountered unspecified image format after parsing")
 		http.Error(w, "image format problem", http.StatusInternalServerError)
+		return
+	}
+
+	if h.cache != nil && cacheEntry != nil {
+		_ = h.cache.Add(cacheKey, *cacheEntry)
 	}
 }
 
@@ -102,50 +127,45 @@ func parseFormat(format string) (imageFormat, bool) {
 	return unspecifiedImageFormat, false
 }
 
-func servePNG(w http.ResponseWriter, img image.Image) {
+func servePNG(w http.ResponseWriter, img image.Image) *cacheEntry {
 	b := new(bytes.Buffer)
 	err := png.Encode(b, img)
 	if err != nil {
 		log.Printf("could not encode png: %v", err)
 		http.Error(w, "could not encode png", http.StatusInternalServerError)
-		return
+		return nil
 	}
-	w.Header().Set("Content-Type", "image/png")
-	w.Header().Set("Content-Length", strconv.Itoa(b.Len()))
-	_, err = w.Write(b.Bytes())
-	if err != nil {
-		log.Printf("failed to send png response: %v", err)
-	}
+	return serveBytes(w, b.Bytes(), "image/png")
 }
 
-func serveGIF(w http.ResponseWriter, img image.Image, colourCount int) {
+func serveGIF(w http.ResponseWriter, img image.Image, colourCount int) *cacheEntry {
 	b := new(bytes.Buffer)
 	err := gif.Encode(b, img, &gif.Options{NumColors: colourCount})
 	if err != nil {
 		log.Printf("could not encode gif: %v", err)
 		http.Error(w, "could not encode gif", http.StatusInternalServerError)
-		return
+		return nil
 	}
-	w.Header().Set("Content-Type", "image/gif")
-	w.Header().Set("Content-Length", strconv.Itoa(b.Len()))
-	_, err = w.Write(b.Bytes())
-	if err != nil {
-		log.Printf("failed to send gif response: %v", err)
-	}
+	return serveBytes(w, b.Bytes(), "image/gif")
 }
 
-func serveWEBP(w http.ResponseWriter, img image.Image) {
+func serveWEBP(w http.ResponseWriter, img image.Image) *cacheEntry {
 	b := new(bytes.Buffer)
 	err := nativewebp.Encode(b, img, nil)
 	if err != nil {
 		log.Printf("could not encode webp: %v", err)
 		http.Error(w, "could not encode webp", http.StatusInternalServerError)
-		return
+		return nil
 	}
-	w.Header().Set("Content-Type", "image/webp")
-	w.Header().Set("Content-Length", strconv.Itoa(b.Len()))
-	_, err = w.Write(b.Bytes())
+	return serveBytes(w, b.Bytes(), "image/webp")
+}
+
+func serveBytes(w http.ResponseWriter, b []byte, contentType string) *cacheEntry {
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", strconv.Itoa(len(b)))
+	_, err := w.Write(b)
 	if err != nil {
-		log.Printf("failed to send webp response: %v", err)
+		log.Printf("failed to send response: %v", err)
 	}
+	return &cacheEntry{bytes: b, contentType: contentType}
 }
