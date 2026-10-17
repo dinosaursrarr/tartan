@@ -11,21 +11,20 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestHandleSuccessfulFormats(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		format      string
-		wantType    string
-		wantDefault bool
+		name     string
+		format   string
+		wantType string
 	}{
 		{
-			name:        "default format is PNG",
-			wantType:    "image/png",
-			wantDefault: true,
+			name:     "default format is PNG",
+			wantType: "image/png",
 		},
 		{
 			name:     "PNG",
@@ -53,47 +52,12 @@ func TestHandleSuccessfulFormats(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			values := url.Values{}
-			values.Set("pattern", "a#FF0000b#00FF00[a1]b1")
-			if !test.wantDefault {
-				values.Set("format", test.format)
-			}
+			handler := NewHandler(nil)
+			response := performRequest(handler, http.MethodGet, "a#FF0000b#00FF00[a1]b1", test.format)
 
-			request := httptest.NewRequest(http.MethodGet, "/?"+values.Encode(), nil)
-			response := httptest.NewRecorder()
+			assertSuccessfulImageResponse(t, response, test.wantType)
 
-			Handle(response, request)
-
-			if response.Code != http.StatusOK {
-				t.Fatalf(
-					"Handle() status = %d, want %d; body = %q",
-					response.Code,
-					http.StatusOK,
-					response.Body.String(),
-				)
-			}
-
-			contentType, _, err := mime.ParseMediaType(response.Header().Get("Content-Type"))
-			if err != nil {
-				t.Fatalf("Content-Type is invalid: %v", err)
-			}
-			if contentType != test.wantType {
-				t.Fatalf("Content-Type = %q, want %q", contentType, test.wantType)
-			}
-
-			if response.Body.Len() == 0 {
-				t.Fatal("response body is empty")
-			}
-
-			contentLength, err := strconv.Atoi(response.Header().Get("Content-Length"))
-			if err != nil {
-				t.Fatalf("Content-Length is invalid: %v", err)
-			}
-			if contentLength != response.Body.Len() {
-				t.Fatalf("Content-Length = %d, body length = %d", contentLength, response.Body.Len())
-			}
-
-			switch contentType {
+			switch test.wantType {
 			case "image/png":
 				img, err := png.Decode(bytes.NewReader(response.Body.Bytes()))
 				if err != nil {
@@ -122,10 +86,8 @@ func TestHandleSuccessfulFormats(t *testing.T) {
 func TestHandleRejectsNonGETMethod(t *testing.T) {
 	t.Parallel()
 
-	request := httptest.NewRequest(http.MethodPost, "/", nil)
-	response := httptest.NewRecorder()
-
-	Handle(response, request)
+	handler := NewHandler(nil)
+	response := performRequest(handler, http.MethodPost, "a#112233[a1", "png")
 
 	if response.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("Handle() status = %d, want %d", response.Code, http.StatusMethodNotAllowed)
@@ -158,13 +120,26 @@ func TestHandleRejectsInvalidPatterns(t *testing.T) {
 			name:    "zero thread count",
 			pattern: "a#112233[a0",
 		},
+		{
+			name:    "space between thread blocks",
+			pattern: "a#112233[a1 b1",
+		},
+		{
+			name:    "space between warp and weft",
+			pattern: "a#112233[a1] b1",
+		},
+		{
+			name:    "unexpected percent sequence",
+			pattern: "a#112233[a1%ZZ",
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			response := performRequest(http.MethodGet, test.pattern, "")
+			handler := NewHandler(nil)
+			response := performRequest(handler, http.MethodGet, test.pattern, "")
 			if response.Code != http.StatusBadRequest {
 				t.Fatalf(
 					"Handle() status = %d, want %d; body = %q",
@@ -180,7 +155,8 @@ func TestHandleRejectsInvalidPatterns(t *testing.T) {
 func TestHandleRejectsUnsupportedFormat(t *testing.T) {
 	t.Parallel()
 
-	response := performRequest(http.MethodGet, "a#112233[a1", "jpg")
+	handler := NewHandler(nil)
+	response := performRequest(handler, http.MethodGet, "a#112233[a1", "jpg")
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf(
 			"Handle() status = %d, want %d; body = %q",
@@ -218,7 +194,8 @@ func TestHandleRejectsThreadsOverMaximumDimension(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			response := performRequest(http.MethodGet, test.pattern, "")
+			handler := NewHandler(nil)
+			response := performRequest(handler, http.MethodGet, test.pattern, "")
 			if response.Code != http.StatusBadRequest {
 				t.Fatalf(
 					"Handle() status = %d, want %d; body = %q",
@@ -234,25 +211,169 @@ func TestHandleRejectsThreadsOverMaximumDimension(t *testing.T) {
 	}
 }
 
-func TestHandleRejectsMalformedQueryEscape(t *testing.T) {
+func TestHandleCachesResponsesByFormat(t *testing.T) {
 	t.Parallel()
 
-	request := httptest.NewRequest(http.MethodGet, "/?pattern=%25ZZ", nil)
-	response := httptest.NewRecorder()
+	pattern := "a#FF0000b#00FF00[a1]b1"
+	cache := NewCache(8, time.Minute)
+	handler := NewHandler(cache)
+	tests := []struct {
+		name        string
+		format      string
+		cacheFormat imageFormat
+		contentType string
+	}{
+		{
+			name:        "default PNG",
+			cacheFormat: pngFormat,
+			contentType: "image/png",
+		},
+		{
+			name:        "GIF",
+			format:      "gif",
+			cacheFormat: gifFormat,
+			contentType: "image/gif",
+		},
+		{
+			name:        "WEBP",
+			format:      "webp",
+			cacheFormat: webpFormat,
+			contentType: "image/webp",
+		},
+	}
 
-	Handle(response, request)
+	for _, test := range tests {
+		response := performRequest(handler, http.MethodGet, pattern, test.format)
+		assertSuccessfulImageResponse(t, response, test.contentType)
 
-	if response.Code != http.StatusBadRequest {
-		t.Fatalf(
-			"Handle() status = %d, want %d; body = %q",
-			response.Code,
-			http.StatusBadRequest,
-			response.Body.String(),
-		)
+		key := cacheKey{pattern: pattern, format: test.cacheFormat}
+		entry, ok := cache.Get(key)
+		if !ok {
+			t.Fatalf("cache has no entry for %s", test.name)
+		}
+		if entry.contentType != test.contentType {
+			t.Errorf("cached content type = %q, want %q", entry.contentType, test.contentType)
+		}
+		if !bytes.Equal(entry.bytes, response.Body.Bytes()) {
+			t.Errorf("cached bytes do not match the first %s response", test.name)
+		}
+
+		// A repeat request should take the cache-hit path and return the same
+		// encoded representation without changing the cache entry.
+		repeatFormat := test.format
+		if test.cacheFormat == pngFormat {
+			repeatFormat = " PNG "
+		}
+		repeat := performRequest(handler, http.MethodGet, pattern, repeatFormat)
+		assertSuccessfulImageResponse(t, repeat, test.contentType)
+		if !bytes.Equal(repeat.Body.Bytes(), entry.bytes) {
+			t.Errorf("repeated %s response does not match cached bytes", test.name)
+		}
+	}
+
+	for _, test := range tests {
+		key := cacheKey{pattern: pattern, format: test.cacheFormat}
+		entry, ok := cache.Get(key)
+		if !ok {
+			t.Errorf("cache has no entry for format %v after requests", test.cacheFormat)
+			continue
+		}
+		if entry.contentType != test.contentType {
+			t.Errorf("cached content type for %v = %q, want %q", test.cacheFormat, entry.contentType, test.contentType)
+		}
 	}
 }
 
-func performRequest(method string, pattern string, format string) *httptest.ResponseRecorder {
+func TestHandleDoesNotCacheRejectedResponses(t *testing.T) {
+	t.Parallel()
+
+	cache := NewCache(8, time.Minute)
+	handler := NewHandler(cache)
+	tests := []struct {
+		name    string
+		pattern string
+	}{
+		{
+			name:    "invalid pattern",
+			pattern: "a#112233[a0",
+		},
+		{
+			name:    "warp over limit",
+			pattern: "a#112233[a1025]a1",
+		},
+		{
+			name:    "weft over limit",
+			pattern: "a#112233[a1]a1025",
+		},
+	}
+
+	for _, test := range tests {
+		response := performRequest(handler, http.MethodGet, test.pattern, "")
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("%s: status = %d, want %d", test.name, response.Code, http.StatusBadRequest)
+		}
+
+		key := cacheKey{pattern: test.pattern, format: pngFormat}
+		_, ok := cache.Get(key)
+		if ok {
+			t.Errorf("%s: rejected response was cached", test.name)
+		}
+	}
+}
+
+func TestHandleCacheEntriesExpire(t *testing.T) {
+	t.Parallel()
+
+	cache := NewCache(2, 100*time.Millisecond)
+	handler := NewHandler(cache)
+	pattern := "a#112233[a1"
+	key := cacheKey{pattern: pattern, format: pngFormat}
+
+	firstResponse := performRequest(handler, http.MethodGet, pattern, "")
+	assertSuccessfulImageResponse(t, firstResponse, "image/png")
+
+	time.Sleep(150 * time.Millisecond)
+	_, ok := cache.Get(key)
+	if ok {
+		t.Fatal("cache entry is still present after its TTL elapsed")
+	}
+
+	secondResponse := performRequest(handler, http.MethodGet, pattern, "")
+	assertSuccessfulImageResponse(t, secondResponse, "image/png")
+	if !bytes.Equal(firstResponse.Body.Bytes(), secondResponse.Body.Bytes()) {
+		t.Fatal("response after cache expiry differs from initial response")
+	}
+
+	_, ok = cache.Get(key)
+	if !ok {
+		t.Fatal("cache does not contain an entry after the request refreshed it")
+	}
+}
+
+func TestHandleCacheEvictsOldEntriesWhenFull(t *testing.T) {
+	t.Parallel()
+
+	cache := NewCache(1, time.Minute)
+	handler := NewHandler(cache)
+	firstPattern := "a#112233[a1"
+	secondPattern := "a#112233[a2"
+
+	firstResponse := performRequest(handler, http.MethodGet, firstPattern, "")
+	assertSuccessfulImageResponse(t, firstResponse, "image/png")
+	secondResponse := performRequest(handler, http.MethodGet, secondPattern, "")
+	assertSuccessfulImageResponse(t, secondResponse, "image/png")
+
+	_, firstOK := cache.Get(cacheKey{pattern: firstPattern, format: pngFormat})
+	if firstOK {
+		t.Fatal("first cache entry is still present after capacity was exceeded")
+	}
+	_, secondOK := cache.Get(cacheKey{pattern: secondPattern, format: pngFormat})
+	if !secondOK {
+		t.Fatal("cache does not contain the most recent entry")
+	}
+}
+
+func performRequest(handler *Handler, method string, pattern string, format string) *httptest.ResponseRecorder {
 	values := url.Values{}
 	values.Set("pattern", pattern)
 	if format != "" {
@@ -261,8 +382,35 @@ func performRequest(method string, pattern string, format string) *httptest.Resp
 
 	request := httptest.NewRequest(method, "/?"+values.Encode(), nil)
 	response := httptest.NewRecorder()
-	Handle(response, request)
+	handler.Handle(response, request)
 	return response
+}
+
+func assertSuccessfulImageResponse(t *testing.T, response *httptest.ResponseRecorder, wantType string) {
+	t.Helper()
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("Handle() status = %d, want %d; body = %q", response.Code, http.StatusOK, response.Body.String())
+	}
+
+	contentType, _, err := mime.ParseMediaType(response.Header().Get("Content-Type"))
+	if err != nil {
+		t.Fatalf("Content-Type is invalid: %v", err)
+	}
+	if contentType != wantType {
+		t.Fatalf("Content-Type = %q, want %q", contentType, wantType)
+	}
+	if response.Body.Len() == 0 {
+		t.Fatal("response body is empty")
+	}
+
+	contentLength, err := strconv.Atoi(response.Header().Get("Content-Length"))
+	if err != nil {
+		t.Fatalf("Content-Length is invalid: %v", err)
+	}
+	if contentLength != response.Body.Len() {
+		t.Fatalf("Content-Length = %d, body length = %d", contentLength, response.Body.Len())
+	}
 }
 
 func assertImageDimensions(t *testing.T, gotWidth int, gotHeight int, wantWidth int, wantHeight int) {
