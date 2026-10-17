@@ -2,6 +2,8 @@ package api
 
 import (
 	"bytes"
+	"image"
+	"image/color"
 	"image/gif"
 	"image/png"
 	"mime"
@@ -13,6 +15,8 @@ import (
 	"testing"
 	"time"
 )
+
+const commonPattern = "a#112233[a1"
 
 func TestHandleSuccessfulFormats(t *testing.T) {
 	t.Parallel()
@@ -52,7 +56,7 @@ func TestHandleSuccessfulFormats(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			handler := NewHandler(nil)
+			handler := NewHandler(nil, nil)
 			response := performRequest(handler, http.MethodGet, "a#FF0000b#00FF00[a1]b1", test.format)
 
 			assertSuccessfulImageResponse(t, response, test.wantType)
@@ -86,8 +90,8 @@ func TestHandleSuccessfulFormats(t *testing.T) {
 func TestHandleRejectsNonGETMethod(t *testing.T) {
 	t.Parallel()
 
-	handler := NewHandler(nil)
-	response := performRequest(handler, http.MethodPost, "a#112233[a1", "png")
+	handler := NewHandler(nil, nil)
+	response := performRequest(handler, http.MethodPost, commonPattern, "png")
 
 	if response.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("Handle() status = %d, want %d", response.Code, http.StatusMethodNotAllowed)
@@ -138,7 +142,7 @@ func TestHandleRejectsInvalidPatterns(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			handler := NewHandler(nil)
+			handler := NewHandler(nil, nil)
 			response := performRequest(handler, http.MethodGet, test.pattern, "")
 			if response.Code != http.StatusBadRequest {
 				t.Fatalf(
@@ -155,8 +159,8 @@ func TestHandleRejectsInvalidPatterns(t *testing.T) {
 func TestHandleRejectsUnsupportedFormat(t *testing.T) {
 	t.Parallel()
 
-	handler := NewHandler(nil)
-	response := performRequest(handler, http.MethodGet, "a#112233[a1", "jpg")
+	handler := NewHandler(nil, nil)
+	response := performRequest(handler, http.MethodGet, commonPattern, "jpg")
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf(
 			"Handle() status = %d, want %d; body = %q",
@@ -180,12 +184,12 @@ func TestHandleRejectsThreadsOverMaximumDimension(t *testing.T) {
 	}{
 		{
 			name:    "too many warp threads",
-			pattern: "a#112233[a1025]a1",
+			pattern: "a#112233[a513]a1",
 			wantErr: "max width",
 		},
 		{
 			name:    "too many weft threads",
-			pattern: "a#112233[a1]a1025",
+			pattern: "a#112233[a1]a513",
 			wantErr: "max height",
 		},
 	}
@@ -194,7 +198,7 @@ func TestHandleRejectsThreadsOverMaximumDimension(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			handler := NewHandler(nil)
+			handler := NewHandler(nil, nil)
 			response := performRequest(handler, http.MethodGet, test.pattern, "")
 			if response.Code != http.StatusBadRequest {
 				t.Fatalf(
@@ -215,8 +219,10 @@ func TestHandleCachesResponsesByFormat(t *testing.T) {
 	t.Parallel()
 
 	pattern := "a#FF0000b#00FF00[a1]b1"
-	cache := NewCache(8, time.Minute)
-	handler := NewHandler(cache)
+	imageCache := NewImageCache(8, time.Minute)
+	wovenCache := NewWovenCache(8, time.Minute)
+	handler := NewHandler(imageCache, wovenCache)
+
 	tests := []struct {
 		name        string
 		format      string
@@ -246,10 +252,10 @@ func TestHandleCachesResponsesByFormat(t *testing.T) {
 		response := performRequest(handler, http.MethodGet, pattern, test.format)
 		assertSuccessfulImageResponse(t, response, test.contentType)
 
-		key := cacheKey{pattern: pattern, format: test.cacheFormat}
-		entry, ok := cache.Get(key)
+		key := imageCacheKey{pattern: pattern, format: test.cacheFormat}
+		entry, ok := imageCache.Get(key)
 		if !ok {
-			t.Fatalf("cache has no entry for %s", test.name)
+			t.Fatalf("image cache has no entry for %s", test.name)
 		}
 		if entry.contentType != test.contentType {
 			t.Errorf("cached content type = %q, want %q", entry.contentType, test.contentType)
@@ -258,8 +264,6 @@ func TestHandleCachesResponsesByFormat(t *testing.T) {
 			t.Errorf("cached bytes do not match the first %s response", test.name)
 		}
 
-		// A repeat request should take the cache-hit path and return the same
-		// encoded representation without changing the cache entry.
 		repeatFormat := test.format
 		if test.cacheFormat == pngFormat {
 			repeatFormat = " PNG "
@@ -271,24 +275,47 @@ func TestHandleCachesResponsesByFormat(t *testing.T) {
 		}
 	}
 
-	for _, test := range tests {
-		key := cacheKey{pattern: pattern, format: test.cacheFormat}
-		entry, ok := cache.Get(key)
-		if !ok {
-			t.Errorf("cache has no entry for format %v after requests", test.cacheFormat)
-			continue
-		}
-		if entry.contentType != test.contentType {
-			t.Errorf("cached content type for %v = %q, want %q", test.cacheFormat, entry.contentType, test.contentType)
+	woven, ok := wovenCache.Get(pattern)
+	if !ok {
+		t.Fatal("woven cache does not contain the pattern after successful requests")
+	}
+	if woven.img == nil {
+		t.Fatal("cached woven image is nil")
+	}
+	if woven.colourCount != 2 {
+		t.Errorf("cached colour count = %d, want 2", woven.colourCount)
+	}
+	assertImageDimensions(t, woven.img.Bounds().Dx(), woven.img.Bounds().Dy(), 2, 2)
+}
+
+func TestHandleUsesWovenCacheOnImageCacheMiss(t *testing.T) {
+	t.Parallel()
+
+	pattern := commonPattern
+	cachedColour := color.RGBA{R: 0x12, G: 0x34, B: 0x56, A: 0xff}
+	cachedImage := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	for y := range 2 {
+		for x := range 2 {
+			cachedImage.Set(x, y, cachedColour)
 		}
 	}
+
+	wovenCache := NewWovenCache(2, time.Minute)
+	wovenCache.Add(pattern, wovenCacheEntry{img: cachedImage, colourCount: 1})
+	handler := NewHandler(nil, wovenCache)
+	response := performRequest(handler, http.MethodGet, pattern, "png")
+	assertSuccessfulImageResponse(t, response, "image/png")
+
+	decoded, err := png.Decode(bytes.NewReader(response.Body.Bytes()))
+	if err != nil {
+		t.Fatalf("PNG body does not decode: %v", err)
+	}
+	assertColour(t, decoded.At(0, 0), cachedColour)
 }
 
 func TestHandleDoesNotCacheRejectedResponses(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache(8, time.Minute)
-	handler := NewHandler(cache)
 	tests := []struct {
 		name    string
 		pattern string
@@ -299,43 +326,68 @@ func TestHandleDoesNotCacheRejectedResponses(t *testing.T) {
 		},
 		{
 			name:    "warp over limit",
-			pattern: "a#112233[a1025]a1",
+			pattern: "a#112233[a513]a1",
 		},
 		{
 			name:    "weft over limit",
-			pattern: "a#112233[a1]a1025",
+			pattern: "a#112233[a1]a513",
 		},
 	}
 
 	for _, test := range tests {
-		response := performRequest(handler, http.MethodGet, test.pattern, "")
-		if response.Code != http.StatusBadRequest {
-			t.Fatalf("%s: status = %d, want %d", test.name, response.Code, http.StatusBadRequest)
-		}
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 
-		key := cacheKey{pattern: test.pattern, format: pngFormat}
-		_, ok := cache.Get(key)
-		if ok {
-			t.Errorf("%s: rejected response was cached", test.name)
-		}
+			imageCache := NewImageCache(8, time.Minute)
+			wovenCache := NewWovenCache(8, time.Minute)
+			handler := NewHandler(imageCache, wovenCache)
+			response := performRequest(handler, http.MethodGet, test.pattern, "")
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("Handle() status = %d, want %d", response.Code, http.StatusBadRequest)
+			}
+
+			_, imageOK := imageCache.Get(imageCacheKey{pattern: test.pattern, format: pngFormat})
+			if imageOK {
+				t.Error("rejected response was stored in the image cache")
+			}
+			_, wovenOK := wovenCache.Get(test.pattern)
+			if wovenOK {
+				t.Error("rejected response was stored in the woven cache")
+			}
+		})
 	}
 }
 
 func TestHandleCacheEntriesExpire(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache(2, 100*time.Millisecond)
-	handler := NewHandler(cache)
-	pattern := "a#112233[a1"
-	key := cacheKey{pattern: pattern, format: pngFormat}
+	ttl := 100 * time.Millisecond
+	imageCache := NewImageCache(2, ttl)
+	wovenCache := NewWovenCache(2, ttl)
+	handler := NewHandler(imageCache, wovenCache)
+	pattern := commonPattern
+	imageKey := imageCacheKey{pattern: pattern, format: pngFormat}
 
 	firstResponse := performRequest(handler, http.MethodGet, pattern, "")
 	assertSuccessfulImageResponse(t, firstResponse, "image/png")
 
+	_, imageOK := imageCache.Get(imageKey)
+	if !imageOK {
+		t.Fatal("image cache does not contain an entry after the request")
+	}
+	_, wovenOK := wovenCache.Get(pattern)
+	if !wovenOK {
+		t.Fatal("woven cache does not contain an entry after the request")
+	}
+
 	time.Sleep(150 * time.Millisecond)
-	_, ok := cache.Get(key)
-	if ok {
-		t.Fatal("cache entry is still present after its TTL elapsed")
+	_, imageOK = imageCache.Get(imageKey)
+	if imageOK {
+		t.Fatal("image cache entry is still present after its TTL elapsed")
+	}
+	_, wovenOK = wovenCache.Get(pattern)
+	if wovenOK {
+		t.Fatal("woven cache entry is still present after its TTL elapsed")
 	}
 
 	secondResponse := performRequest(handler, http.MethodGet, pattern, "")
@@ -344,18 +396,23 @@ func TestHandleCacheEntriesExpire(t *testing.T) {
 		t.Fatal("response after cache expiry differs from initial response")
 	}
 
-	_, ok = cache.Get(key)
-	if !ok {
-		t.Fatal("cache does not contain an entry after the request refreshed it")
+	_, imageOK = imageCache.Get(imageKey)
+	if !imageOK {
+		t.Fatal("image cache does not contain an entry after the request refreshed it")
+	}
+	_, wovenOK = wovenCache.Get(pattern)
+	if !wovenOK {
+		t.Fatal("woven cache does not contain an entry after the request refreshed it")
 	}
 }
 
-func TestHandleCacheEvictsOldEntriesWhenFull(t *testing.T) {
+func TestHandleCachesEvictOldEntriesWhenFull(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache(1, time.Minute)
-	handler := NewHandler(cache)
-	firstPattern := "a#112233[a1"
+	imageCache := NewImageCache(1, time.Minute)
+	wovenCache := NewWovenCache(1, time.Minute)
+	handler := NewHandler(imageCache, wovenCache)
+	firstPattern := commonPattern
 	secondPattern := "a#112233[a2"
 
 	firstResponse := performRequest(handler, http.MethodGet, firstPattern, "")
@@ -363,13 +420,22 @@ func TestHandleCacheEvictsOldEntriesWhenFull(t *testing.T) {
 	secondResponse := performRequest(handler, http.MethodGet, secondPattern, "")
 	assertSuccessfulImageResponse(t, secondResponse, "image/png")
 
-	_, firstOK := cache.Get(cacheKey{pattern: firstPattern, format: pngFormat})
-	if firstOK {
-		t.Fatal("first cache entry is still present after capacity was exceeded")
+	_, firstImageOK := imageCache.Get(imageCacheKey{pattern: firstPattern, format: pngFormat})
+	if firstImageOK {
+		t.Fatal("first image cache entry is still present after capacity was exceeded")
 	}
-	_, secondOK := cache.Get(cacheKey{pattern: secondPattern, format: pngFormat})
-	if !secondOK {
-		t.Fatal("cache does not contain the most recent entry")
+	_, secondImageOK := imageCache.Get(imageCacheKey{pattern: secondPattern, format: pngFormat})
+	if !secondImageOK {
+		t.Fatal("image cache does not contain the most recent entry")
+	}
+
+	_, firstWovenOK := wovenCache.Get(firstPattern)
+	if firstWovenOK {
+		t.Fatal("first woven cache entry is still present after capacity was exceeded")
+	}
+	_, secondWovenOK := wovenCache.Get(secondPattern)
+	if !secondWovenOK {
+		t.Fatal("woven cache does not contain the most recent entry")
 	}
 }
 
@@ -418,5 +484,16 @@ func assertImageDimensions(t *testing.T, gotWidth int, gotHeight int, wantWidth 
 
 	if gotWidth != wantWidth || gotHeight != wantHeight {
 		t.Fatalf("image dimensions = %dx%d, want %dx%d", gotWidth, gotHeight, wantWidth, wantHeight)
+	}
+}
+
+func assertColour(t *testing.T, got color.Color, want color.Color) {
+	t.Helper()
+
+	gotR, gotG, gotB, gotA := got.RGBA()
+	wantR, wantG, wantB, wantA := want.RGBA()
+	if gotR != wantR || gotG != wantG || gotB != wantB || gotA != wantA {
+		t.Fatalf("colour = RGBA(%04x,%04x,%04x,%04x), want RGBA(%04x,%04x,%04x,%04x)",
+			gotR, gotG, gotB, gotA, wantR, wantG, wantB, wantA)
 	}
 }

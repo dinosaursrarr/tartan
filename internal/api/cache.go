@@ -1,25 +1,39 @@
 package api
 
 import (
+	"image"
 	"time"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
 )
 
-// Cache stores pre-computed results in-memory for given requests.
-type Cache = *expirable.LRU[cacheKey, cacheEntry]
+// ImageCache stores pre-computed rendered images in-memory for given requests.
+type ImageCache = *expirable.LRU[imageCacheKey, imageCacheEntry]
 
-// NewCache creates a new cache with a given size and lifetime.
-func NewCache(maxEntries int, ttl time.Duration) Cache {
-	return expirable.NewLRU[cacheKey, cacheEntry](maxEntries, nil, ttl)
+// NewImageCache creates a new image cache with a given size and lifetime.
+func NewImageCache(maxEntries int, ttl time.Duration) ImageCache {
+	return expirable.NewLRU[imageCacheKey, imageCacheEntry](maxEntries, nil, ttl)
 }
 
-type cacheKey struct {
+// WovenCache stores pre-computed but unrendered images in-memory for given requests.
+type WovenCache = *expirable.LRU[string, wovenCacheEntry]
+
+// NewWovenCache creates a new woven cache with a given size and lifetime.
+func NewWovenCache(maxEntries int, ttl time.Duration) WovenCache {
+	return expirable.NewLRU[string, wovenCacheEntry](maxEntries, nil, ttl)
+}
+
+type imageCacheKey struct {
 	pattern string
 	format  imageFormat
 }
 
-type cacheEntry struct {
+type imageCacheEntry struct {
 	bytes       []byte
 	contentType string
+}
+
+type wovenCacheEntry struct {
+	img         image.Image
+	colourCount int
 }
