@@ -2,26 +2,29 @@ package weave
 
 import "image/color"
 
-const TWILL_WIDTH = 2
-const TWILL_HEIGHT = 2
+// TwillWidth indicates the width of each woven twill unit.
+const TwillWidth = 2
 
-type twill [TWILL_HEIGHT][TWILL_WIDTH]color.Color
+// TwillHeight indicates the height of each woven twill unit.
+const TwillHeight = 2
+
+type twill [TwillHeight][TwillWidth]color.Color
 type twillFn func(h, v color.Color) twill
 
 // Interleave threads with a simple twill where V is    VH
-// the vertical thread and H is the horizontal thread.  HV
+// the vertical thread and H is the horizontal thread.  HV.
 func crossTwill(h, v color.Color) twill {
 	return squareTwill(v, h, h, v)
 }
 
 // Interleave threads with a simple twill where V is    VH
-// the vertical thread and H is the horizontal thread.  VH
+// the vertical thread and H is the horizontal thread.  VH.
 func verticalTwill(h, v color.Color) twill {
 	return squareTwill(v, h, v, h)
 }
 
 // Interleave threads with a simple twill where V is    VV
-// the vertical thread and H is the horizontal thread.  HH
+// the vertical thread and H is the horizontal thread.  HH.
 func horizontalTwill(h, v color.Color) twill {
 	return squareTwill(v, v, h, h)
 }

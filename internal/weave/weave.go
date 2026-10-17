@@ -11,18 +11,18 @@ import (
 
 var errWeave = errors.New("problem during weaving")
 
-// WeaveTartan creates a rendered image from parsed instructions.
-func WeaveTartan(sett *parse.Sett) (image.Image, error) {
+// Tartan creates a rendered image from parsed instructions.
+func Tartan(sett *parse.Sett, twill twillFn) (image.Image, error) {
 	if sett == nil {
 		return nil, fmt.Errorf("%w: input is nil", errWeave)
 	}
 
-	width := TWILL_WIDTH * sett.Warp.Length()
-	height := TWILL_HEIGHT * sett.Weft.Length()
+	width := TwillWidth * sett.Warp.Length()
+	height := TwillHeight * sett.Weft.Length()
 	palette := sett.Palette()
 
 	img := image.NewPaletted(image.Rect(0, 0, width, height), palette)
-	weave(img, sett, crossTwill)
+	weave(img, sett, twill)
 	return img, nil
 }
 
@@ -42,11 +42,11 @@ func weave(img *image.Paletted, sett *parse.Sett, twill twillFn) {
 				break
 			}
 			cell := twill(h, v)
-			for x := range TWILL_WIDTH {
-				for y := range TWILL_HEIGHT {
+			for x := range TwillWidth {
+				for y := range TwillHeight {
 					img.Set(
-						TWILL_WIDTH*c+x,
-						TWILL_HEIGHT*r+y,
+						TwillWidth*c+x,
+						TwillHeight*r+y,
 						cell[y][x],
 					)
 				}

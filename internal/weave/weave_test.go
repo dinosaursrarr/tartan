@@ -1,45 +1,72 @@
-package weave_test
+package weave
 
 import (
 	"image/color"
 	"testing"
 
 	"sett.fyi/tartan/internal/parse"
-	"sett.fyi/tartan/internal/weave"
 )
 
 func TestWeaveTartan(t *testing.T) {
 	t.Parallel()
 
+	red := color.RGBA{R: 0xff, A: 0xff}
+	green := color.RGBA{G: 0xff, A: 0xff}
+
 	tests := []struct {
 		name       string
 		pattern    string
+		twill      twillFn
 		wantWidth  int
 		wantHeight int
 		wantPixels [][]color.Color
 	}{
 		{
-			name:       "single crossing preserves 2x2 cross twill orientation",
+			name:       "cross twill preserves diagonal orientation",
 			pattern:    "a#FF0000b#00FF00[a1]b1",
+			twill:      crossTwill,
 			wantWidth:  2,
 			wantHeight: 2,
 			wantPixels: [][]color.Color{
-				{color.RGBA{G: 0xff, A: 0xff}, color.RGBA{R: 0xff, A: 0xff}},
-				{color.RGBA{R: 0xff, A: 0xff}, color.RGBA{G: 0xff, A: 0xff}},
+				{green, red},
+				{red, green},
+			},
+		},
+		{
+			name:       "horizontal twill puts colours in horizontal bands",
+			pattern:    "a#FF0000b#00FF00[a1]b1",
+			twill:      horizontalTwill,
+			wantWidth:  2,
+			wantHeight: 2,
+			wantPixels: [][]color.Color{
+				{green, green},
+				{red, red},
+			},
+		},
+		{
+			name:       "vertical twill puts colours in vertical bands",
+			pattern:    "a#FF0000b#00FF00[a1]b1",
+			twill:      verticalTwill,
+			wantWidth:  2,
+			wantHeight: 2,
+			wantPixels: [][]color.Color{
+				{green, red},
+				{green, red},
 			},
 		},
 		{
 			name:       "multiple thread runs produce natural dimensions and expected cells",
 			pattern:    "a#FF0000b#00FF00[a2b1]b1a2",
+			twill:      crossTwill,
 			wantWidth:  6,
 			wantHeight: 6,
 			wantPixels: [][]color.Color{
-				{color.RGBA{G: 0xff, A: 0xff}, color.RGBA{R: 0xff, A: 0xff}, color.RGBA{G: 0xff, A: 0xff}, color.RGBA{R: 0xff, A: 0xff}, color.RGBA{G: 0xff, A: 0xff}, color.RGBA{G: 0xff, A: 0xff}},
-				{color.RGBA{R: 0xff, A: 0xff}, color.RGBA{G: 0xff, A: 0xff}, color.RGBA{R: 0xff, A: 0xff}, color.RGBA{G: 0xff, A: 0xff}, color.RGBA{G: 0xff, A: 0xff}, color.RGBA{G: 0xff, A: 0xff}},
-				{color.RGBA{R: 0xff, A: 0xff}, color.RGBA{R: 0xff, A: 0xff}, color.RGBA{R: 0xff, A: 0xff}, color.RGBA{R: 0xff, A: 0xff}, color.RGBA{R: 0xff, A: 0xff}, color.RGBA{G: 0xff, A: 0xff}},
-				{color.RGBA{R: 0xff, A: 0xff}, color.RGBA{R: 0xff, A: 0xff}, color.RGBA{R: 0xff, A: 0xff}, color.RGBA{R: 0xff, A: 0xff}, color.RGBA{G: 0xff, A: 0xff}, color.RGBA{R: 0xff, A: 0xff}},
-				{color.RGBA{R: 0xff, A: 0xff}, color.RGBA{R: 0xff, A: 0xff}, color.RGBA{R: 0xff, A: 0xff}, color.RGBA{R: 0xff, A: 0xff}, color.RGBA{R: 0xff, A: 0xff}, color.RGBA{G: 0xff, A: 0xff}},
-				{color.RGBA{R: 0xff, A: 0xff}, color.RGBA{R: 0xff, A: 0xff}, color.RGBA{R: 0xff, A: 0xff}, color.RGBA{R: 0xff, A: 0xff}, color.RGBA{G: 0xff, A: 0xff}, color.RGBA{R: 0xff, A: 0xff}},
+				{green, red, green, red, green, green},
+				{red, green, red, green, green, green},
+				{red, red, red, red, red, green},
+				{red, red, red, red, green, red},
+				{red, red, red, red, red, green},
+				{red, red, red, red, green, red},
 			},
 		},
 	}
@@ -53,7 +80,7 @@ func TestWeaveTartan(t *testing.T) {
 				t.Fatalf("Parse() error = %v, want nil", err)
 			}
 
-			got, err := weave.WeaveTartan(sett)
+			got, err := Tartan(sett, tt.twill)
 			if err != nil {
 				t.Fatalf("WeaveTartan() error = %v, want nil", err)
 			}
@@ -77,7 +104,7 @@ func TestWeaveTartan(t *testing.T) {
 func TestWeaveTartanNilSett(t *testing.T) {
 	t.Parallel()
 
-	got, err := weave.WeaveTartan(nil)
+	got, err := Tartan(nil, crossTwill)
 	if err == nil {
 		t.Fatal("WeaveTartan(nil) error = nil, want an error")
 	}
@@ -94,12 +121,12 @@ func TestWeaveTartanSingleThreadUsesSameWarpAndWeft(t *testing.T) {
 		t.Fatalf("Parse() error = %v, want nil", err)
 	}
 
-	got, err := weave.WeaveTartan(sett)
+	got, err := Tartan(sett, crossTwill)
 	if err != nil {
 		t.Fatalf("WeaveTartan() error = %v, want nil", err)
 	}
-	wantWidth := 2 * sett.Warp.Length()
-	wantHeight := 2 * sett.Weft.Length()
+	wantWidth := TwillWidth * sett.Warp.Length()
+	wantHeight := TwillHeight * sett.Weft.Length()
 	if got.Bounds().Dx() != wantWidth || got.Bounds().Dy() != wantHeight {
 		t.Fatalf("image dimensions = %dx%d, want %dx%d", got.Bounds().Dx(), got.Bounds().Dy(), wantWidth, wantHeight)
 	}

@@ -13,9 +13,9 @@ import (
 )
 
 // errParse is used to indicate a problem during parsing.
-var errParse = errors.New("Could not parse input")
+var errParse = errors.New("could not parse input")
 
-// Parse
+// Parse converts the input pattern into weaving instructions if it is valid.
 func Parse(pattern string) (*Sett, error) {
 	colours, err := parseColours(pattern)
 	if err != nil {
@@ -36,7 +36,9 @@ type colorRef byte
 
 var colourRegex = regexp.MustCompile(`[a-z]#[a-fA-F0-9]{6}`)
 var blockRegex = regexp.MustCompile(`[a-z][1-9][0-9]*`)
-var lineRegex = regexp.MustCompile(`^(([a-z][1-9][0-9]*)+|([a-z][1-9][0-9]*)*\(([a-z][1-9][0-9]*)+\)([a-z][1-9][0-9]*)*)$`)
+var lineRegex = regexp.MustCompile(
+	`^(([a-z][1-9][0-9]*)+|([a-z][1-9][0-9]*)*\(([a-z][1-9][0-9]*)+\)([a-z][1-9][0-9]*)*)$`,
+)
 
 func parseColours(pattern string) (map[colorRef]color.Color, error) {
 	defs := colourRegex.FindAllString(pattern, -1)
@@ -60,9 +62,9 @@ func parseColours(pattern string) (map[colorRef]color.Color, error) {
 			return nil, fmt.Errorf("%w: cannot parse has hex: %v", errParse, parts[1])
 		}
 		colours[ref] = color.RGBA{
-			R: uint8(hexCode[0]),
-			G: uint8(hexCode[1]),
-			B: uint8(hexCode[2]),
+			R: hexCode[0],
+			G: hexCode[1],
+			B: hexCode[2],
 			A: 255,
 		}
 	}

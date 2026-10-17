@@ -125,7 +125,6 @@ func TestParse(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -184,13 +183,13 @@ func TestThreadLengthAndIteratorThroughParsedSett(t *testing.T) {
 	}
 
 	iter := sett.Warp.Iter()
-	for index := 0; index < 5; index++ {
+	for index := range 5 {
 		_, ok := iter.Next()
 		if !ok {
 			t.Fatalf("Next() at index %d returned ok = false, want true", index)
 		}
 	}
-	for index := 0; index < 2; index++ {
+	for index := range 2 {
 		_, ok := iter.Next()
 		if ok {
 			t.Fatalf("Next() after exhaustion, call %d returned ok = true, want false", index+1)

@@ -1,0 +1,40 @@
+version: "2"
+linters:
+  default: "all"
+  disable:
+    - cyclop # Context matters and some long methods are OK
+    - depguard # Haven't configured list of allowed imports
+    - dogsled # Don't think this is a useful analysis
+    - exhaustruct # Sometimes zero values are OK
+    - funlen # Sometimes methods have to be long
+    - godox # I don't have a problem with TODOs
+    - ireturn # Didn't seem to work right
+    - maintidx # Disagree with its opinion
+    - mnd # Sometimes a number is clear enough in context.
+    - nlreturn # Disagreed with opinions
+    - testpackage # Sometimes you don't want to make things public just for testing
+    - varnamelen # Context matters and many of these names are fine
+    - wsl # Been deprecated in favour of wsl_v5
+    - wsl_v5 # Disagree with this and think it made it less clear.
+  exclusions:
+    rules:
+      - path: _test\.go
+        # These were noisy and unhelpful in test code
+        linters:
+          - dupl # Tests should be DAMP not DRY
+          - gocognit # Tests often have to check a lot of things so are long/complex
+  settings:
+    gosec:
+      excludes:
+        - G404 # I'm not using a secure crypto random number generator, but I'm not doing crypto
+formatters:
+  enable:
+    - gofmt
+    - goimports
+    - golines
+  settings:
+    golines:
+      max-len: 120
+    goimports:
+      local-prefixes:
+        - sett.fyi/tartan/
