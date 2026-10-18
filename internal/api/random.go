@@ -109,6 +109,7 @@ func (h *RandomHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Add("Cache-Control", "public, max-age=5")
 	h.weave.ServeHTTP(w, patternReq)
 }
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import tartanCatalogue from "@catalogue/tartans.json";
 import {
@@ -124,6 +124,7 @@ function ThreadTrack({
   onInsert,
   onMove,
   onResize,
+  onResizeStart,
 }: {
   name: ThreadName;
   thread: ThreadModel;
@@ -139,6 +140,7 @@ function ThreadTrack({
   onInsert: (displayBoundary: number) => void;
   onMove: (blockId: string, displayBoundary: number) => void;
   onResize: (blockId: string, length: number, neighbourId?: string, neighbourLength?: number) => void;
+  onResizeStart: () => void;
 }) {
   const displayBlocks = useMemo(() => expandThread(thread), [thread]);
   const dragId = useRef<string | null>(null);
@@ -154,15 +156,27 @@ function ThreadTrack({
     // At an interior edge, transfer run units between the two adjacent blocks.
     // The thread's total length therefore stays constant while that shared edge moves.
     const neighbour = adjacent && adjacent.id !== block.id ? adjacent : null;
+    let historyCheckpointed = false;
+    const checkpointBeforeChange = () => {
+      if (!historyCheckpointed) {
+        onResizeStart();
+        historyCheckpointed = true;
+      }
+    };
     const move = (moveEvent: PointerEvent) => {
       if (moveEvent.pointerId !== pointerId) return;
       const pointerDelta = Math.round((moveEvent.clientX - startX) / unitPixels);
       const requestedCurrentDelta = edge === "right" ? pointerDelta : -pointerDelta;
       if (neighbour) {
         const currentDelta = Math.max(1 - startLength, Math.min(neighbour.length - 1, requestedCurrentDelta));
+        if (currentDelta === 0) return;
+        checkpointBeforeChange();
         onResize(block.id, startLength + currentDelta, neighbour.id, neighbour.length - currentDelta);
       } else {
-        onResize(block.id, Math.max(1, startLength + requestedCurrentDelta));
+        const nextLength = Math.max(1, startLength + requestedCurrentDelta);
+        if (nextLength === startLength) return;
+        checkpointBeforeChange();
+        onResize(block.id, nextLength);
       }
     };
     const up = (upEvent: PointerEvent) => {
@@ -200,6 +214,7 @@ function ThreadTrack({
             onDragLeave={(event) => event.currentTarget.classList.remove("drop-target")}
             onDrop={(event) => { event.currentTarget.classList.remove("drop-target");
               event.preventDefault();
+              event.stopPropagation();
               const id = event.dataTransfer.getData("text/plain") || dragId.current;
               if (id) onMove(id, 0);
               dragId.current = null;
@@ -214,12 +229,9 @@ function ThreadTrack({
               selectedBlockId === entry.block.id &&
               activeTrackName === name &&
               activeBlockReflected === entry.reflected;
-            const draftToken = editingThisOccurrence ? blockTokenDraft : `${entry.block.colourId}${entry.block.length}`;
-            const blockWidth = Math.max(
-              26,
-              entry.block.length * 10 + 16,
-              editingThisOccurrence ? draftToken.length * 12 + 22 : 0,
-            );
+            // Keep the track geometry independent of edit state. The input overlays
+            // the block at exactly this width, so selecting it never shifts neighbours.
+            const blockWidth = Math.max(26, entry.block.length * 10 + 16);
             const classNames = [
               "thread-block",
               entry.block.length <= 3 ? "compact-block" : "",
@@ -228,8 +240,8 @@ function ThreadTrack({
               selectedBlockId === entry.block.id ? "selected" : selectedBlockIds.includes(entry.block.id) ? "multi-selected" : "",
             ].filter(Boolean).join(" ");
             return (
-              <div className="thread-block-group" key={`${entry.block.id}-${entry.reflected ? "r" : "s"}`}>
-                {index > 0 && <button
+              <Fragment key={`${entry.block.id}-${entry.reflected ? "r" : "s"}`}>
+            {index > 0 && <button
                   type="button"
                   className="insert-slot"
                   aria-label={`Insert a block before block ${index + 1} in ${name}`}
@@ -239,36 +251,76 @@ function ThreadTrack({
                   onDragLeave={(event) => event.currentTarget.classList.remove("drop-target")}
                   onDrop={(event) => { event.currentTarget.classList.remove("drop-target");
                     event.preventDefault();
+                    event.stopPropagation();
                     const id = event.dataTransfer.getData("text/plain") || dragId.current;
                     if (id) onMove(id, index);
                     dragId.current = null;
                   }}
                 ><Icon name="plus" /></button>}
+                <div
+                  className="thread-block-group"
+                  onDragOver={(event) => {
+                    if (!dragId.current || dragId.current === entry.block.id) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    const before = event.clientX < rect.left + rect.width / 2;
+                    event.currentTarget.classList.toggle("drop-before", before);
+                    event.currentTarget.classList.toggle("drop-after", !before);
+                  }}
+                  onDragLeave={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                      event.currentTarget.classList.remove("drop-before", "drop-after");
+                    }
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    event.currentTarget.classList.remove("drop-before", "drop-after");
+                    const id = event.dataTransfer.getData("text/plain") || dragId.current;
+                    if (id && id !== entry.block.id) {
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      onMove(id, index + (event.clientX >= rect.left + rect.width / 2 ? 1 : 0));
+                    }
+                    dragId.current = null;
+                  }}
+                >
                 <button
                   type="button"
                   className={classNames}
                   style={{ backgroundColor: hex, color: colourText, width: `${blockWidth}px` }}
                   onClick={(event) => onSelect(entry, event)}
-                  draggable
-                  onDragStart={(event) => {
-                    dragId.current = entry.block.id;
-                    event.dataTransfer.setData("text/plain", entry.block.id);
-                    event.dataTransfer.effectAllowed = "move";
-                    event.currentTarget.classList.add("dragging");
-                  }}
-                  onDragEnd={(event) => {
-                    event.currentTarget.classList.remove("dragging");
-                    dragId.current = null;
-                  }}
                   title={`${entry.block.colourId}${entry.block.length}${entry.reflected ? " · reflected copy; edits affect its source" : entry.inMirror ? " · mirrored source" : ""}`}
                 >
-                  <span className="drag-grip"><Icon name="grip" /></span>
                   <span className="block-colour-id">{entry.block.colourId}</span>
                   <span className="block-length">{entry.block.length}</span>
                   {entry.reflected && <span className="reflect-glyph" aria-label="Reflected">↶</span>}
-                  <span className="resize-handle resize-left" aria-hidden="true" onPointerDown={(event) => startResize(event, entry.block, "left", previousBlock)} />
-                  <span className="resize-handle resize-right" aria-hidden="true" onPointerDown={(event) => startResize(event, entry.block, "right", nextBlock)} />
                 </button>
+                <span className="resize-handle resize-left" aria-hidden="true" onPointerDown={(event) => startResize(event, entry.block, "left", previousBlock)} />
+                <span className="resize-handle resize-right" aria-hidden="true" onPointerDown={(event) => startResize(event, entry.block, "right", nextBlock)} />
+                <span
+                  className="drag-grip"
+                  draggable
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Drag to reorder block ${entry.block.colourId}${entry.block.length}`}
+                  title="Drag this handle to reorder"
+                  onDragStart={(event) => {
+                    event.stopPropagation();
+                    dragId.current = entry.block.id;
+                    event.dataTransfer.setData("text/plain", entry.block.id);
+                    event.dataTransfer.effectAllowed = "move";
+                    event.currentTarget.parentElement?.querySelector(".thread-block")?.classList.add("dragging");
+                  }}
+                  onDragEnd={(event) => {
+                    event.stopPropagation();
+                    event.currentTarget.parentElement?.querySelector(".thread-block")?.classList.remove("dragging");
+                    dragId.current = null;
+                    document.querySelectorAll(".drop-before, .drop-after").forEach((node) => node.classList.remove("drop-before", "drop-after"));
+                  }}
+                  onClick={(event) => event.stopPropagation()}
+                  onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") event.preventDefault(); }}
+                ><Icon name="grip" /></span>
                 {editingThisOccurrence && (
                   <input
                     className="block-inline-editor"
@@ -279,10 +331,12 @@ function ThreadTrack({
                     aria-label={`Edit block token, colour letter and length; current block ${entry.block.colourId}${entry.block.length}`}
                     title="Enter a colour letter and positive length, such as a8. Enter applies; Escape cancels."
                     value={blockTokenDraft}
-                    style={{ backgroundColor: hex, color: colourText, width: `${blockWidth}px` }}
+                    style={{ backgroundColor: hex, color: colourText }}
                     onFocus={(event) => event.currentTarget.select()}
                     onChange={(event) => onBlockTokenDraftChange(event.target.value)}
+                    draggable={false}
                     onPointerDown={(event) => event.stopPropagation()}
+                    onDragStart={(event) => event.preventDefault()}
                     onClick={(event) => event.stopPropagation()}
                     onBlur={(event) => onCommitBlockToken(name, entry.block.id, event.currentTarget.value)}
                     onKeyDown={(event) => {
@@ -299,7 +353,8 @@ function ThreadTrack({
                     }}
                   />
                 )}
-              </div>
+                </div>
+              </Fragment>
             );
           })}
           <button
@@ -312,6 +367,7 @@ function ThreadTrack({
             onDragLeave={(event) => event.currentTarget.classList.remove("drop-target")}
             onDrop={(event) => { event.currentTarget.classList.remove("drop-target");
               event.preventDefault();
+              event.stopPropagation();
               const id = event.dataTransfer.getData("text/plain") || dragId.current;
               if (id) onMove(id, displayBlocks.length);
               dragId.current = null;
@@ -321,7 +377,7 @@ function ThreadTrack({
       </div>
       <div className="thread-footnote">
         <span>{displayBlocks.length} displayed blocks</span>
-        <span>Drag blocks to reorder · drag an edge to resize · plus signs insert</span>
+        <span>Drag the grip to reorder · drag an edge to resize · plus signs insert</span>
       </div>
     </section>
   );
@@ -331,6 +387,9 @@ function App() {
   const initial = useMemo(() => getInitialState(), []);
   const [model, setModel] = useState<TartanModel>(initial.model);
   const modelRef = useRef(model);
+  const historyRef = useRef<{ past: TartanModel[]; future: TartanModel[] }>({ past: [], future: [] });
+  const sourceEditTransactionRef = useRef(false);
+  const [historyCounts, setHistoryCounts] = useState({ undo: 0, redo: 0 });
   const [code, setCode] = useState(initial.code);
   const [parseError, setParseError] = useState<string | null>(initial.error);
   const [endpointError, setEndpointError] = useState<string | null>(null);
@@ -364,7 +423,26 @@ function App() {
   const colourMap = useMemo(() => new Map<string, string>(model.colours.map((colour) => [colour.id, colour.hex] as [string, string])), [model.colours]);
   const selectedBlock = selectedBlockId ? findBlock(model, selectedBlockId) : null;
 
-  const applyModel = useCallback((nextModel: TartanModel) => {
+  const syncHistoryCounts = useCallback(() => {
+    setHistoryCounts({
+      undo: historyRef.current.past.length,
+      redo: historyRef.current.future.length,
+    });
+  }, []);
+
+  const recordHistory = useCallback((snapshot: TartanModel) => {
+    const history = historyRef.current;
+    history.past.push(snapshot);
+    if (history.past.length > 100) history.past.shift();
+    history.future = [];
+    syncHistoryCounts();
+  }, [syncHistoryCounts]);
+
+  const applyModel = useCallback((nextModel: TartanModel, options: { recordHistory?: boolean } = {}) => {
+    const current = modelRef.current;
+    const patternChanged = serialiseTdf(current) !== serialiseTdf(nextModel);
+    if ((options.recordHistory ?? true) && patternChanged) recordHistory(current);
+    sourceEditTransactionRef.current = false;
     modelRef.current = nextModel;
     setModel(nextModel);
     const nextCode = serialiseTdf(nextModel);
@@ -374,7 +452,43 @@ function App() {
     setEndpointError(null);
     setCatalogueName("");
     setCatalogueQuery("");
+  }, [recordHistory]);
+
+  const checkpointHistory = useCallback(() => {
+    recordHistory(modelRef.current);
+  }, [recordHistory]);
+
+  const clearBlockSelection = useCallback(() => {
+    setSelectedBlockId(null);
+    setSelectedBlockIds([]);
+    setSelectionAnchor(null);
+    setBlockTokenDraft("");
+    setActiveTrackName(null);
+    setActiveBlockReflected(false);
   }, []);
+
+  const undo = useCallback(() => {
+    const history = historyRef.current;
+    const previous = history.past.pop();
+    if (!previous) return;
+    history.future.push(modelRef.current);
+    syncHistoryCounts();
+    sourceEditTransactionRef.current = false;
+    applyModel(previous, { recordHistory: false });
+    clearBlockSelection();
+  }, [applyModel, clearBlockSelection, syncHistoryCounts]);
+
+  const redo = useCallback(() => {
+    const history = historyRef.current;
+    const next = history.future.pop();
+    if (!next) return;
+    history.past.push(modelRef.current);
+    if (history.past.length > 100) history.past.shift();
+    syncHistoryCounts();
+    sourceEditTransactionRef.current = false;
+    applyModel(next, { recordHistory: false });
+    clearBlockSelection();
+  }, [applyModel, clearBlockSelection, syncHistoryCounts]);
 
   const notify = useCallback((message: string) => {
     setNotice(message);
@@ -407,7 +521,7 @@ function App() {
   useEffect(() => {
     let currentObjectUrl: string | null = null;
     const controller = new AbortController();
-    fetch("/random?format=webp", { cache: "no-store", signal: controller.signal })
+    fetch("/random?format=webp", { signal: controller.signal })
       .then((response) => {
         if (!response.ok) throw new Error(`Background request returned ${response.status}`);
         return response.blob();
@@ -550,7 +664,7 @@ function App() {
         return block;
       }),
     }));
-    if (serialiseTdf(next) !== serialiseTdf(current)) applyModel(next);
+    if (serialiseTdf(next) !== serialiseTdf(current)) applyModel(next, { recordHistory: false });
     if (selectedBlockId && (selectedBlockId === blockId || selectedBlockId === neighbourId)) {
       const updatedSelection = findBlock(next, selectedBlockId);
       if (updatedSelection) setBlockTokenDraft(`${updatedSelection.colourId}${updatedSelection.length}`);
@@ -610,6 +724,11 @@ function App() {
     setCatalogueQuery("");
     try {
       const next = parseTdf(value);
+      const nextSerialised = serialiseTdf(next);
+      if (nextSerialised !== serialiseTdf(modelRef.current) && !sourceEditTransactionRef.current) {
+        recordHistory(modelRef.current);
+        sourceEditTransactionRef.current = true;
+      }
       modelRef.current = next;
       setModel(next);
       setParseError(null);
@@ -663,6 +782,50 @@ function App() {
     setActiveBlockReflected(false);
   };
 
+  const reduceToSmallestUnit = () => {
+    const current = modelRef.current;
+    const lengths = [...current.warp.blocks, ...(current.weft?.blocks ?? [])].map((block) => block.length);
+    const divisor = lengths.reduce((gcd, value) => {
+      let a = gcd;
+      let b = value;
+      while (b !== 0) [a, b] = [b, a % b];
+      return a;
+    }, 0);
+    if (divisor <= 1) {
+      notify("This pattern is already at its smallest shared unit.");
+      return;
+    }
+    const reduceThread = (thread: ThreadModel): ThreadModel => ({
+      ...thread,
+      blocks: thread.blocks.map((block) => ({ ...block, length: block.length / divisor })),
+    });
+    applyModel({
+      ...current,
+      warp: reduceThread(current.warp),
+      weft: current.weft ? reduceThread(current.weft) : null,
+    });
+    notify(`All block lengths reduced by their common factor, ${divisor}.`);
+  };
+
+  const doubleAllLengths = () => {
+    const current = modelRef.current;
+    const blocks = [...current.warp.blocks, ...(current.weft?.blocks ?? [])];
+    if (blocks.some((block) => block.length > Math.floor(Number.MAX_SAFE_INTEGER / 2))) {
+      notify("One or more lengths are too large to double safely.");
+      return;
+    }
+    const doubleThread = (thread: ThreadModel): ThreadModel => ({
+      ...thread,
+      blocks: thread.blocks.map((block) => ({ ...block, length: block.length * 2 })),
+    });
+    applyModel({
+      ...current,
+      warp: doubleThread(current.warp),
+      weft: current.weft ? doubleThread(current.weft) : null,
+    });
+    notify("All block lengths doubled.");
+  };
+
   const applyMirrorSelection = (name: ThreadName) => {
     const current = modelRef.current;
     const effectiveName: ThreadName = name === "weft" && current.weft === null ? "warp" : name;
@@ -698,8 +861,7 @@ function App() {
   const chooseCatalogueItem = (item: CatalogueItem) => {
     try {
       const nextModel = parseTdf(item.pattern);
-      modelRef.current = nextModel;
-      setModel(nextModel);
+      applyModel(nextModel);
       setCode(item.pattern);
       setParseError(null);
       setEndpointError(null);
@@ -747,6 +909,12 @@ function App() {
   const hasMirrorWeft = Boolean(model.weft && getThreadMirrorRange(model.weft));
   const selectedThreadName: ThreadName = activeTrackName === "weft" && model.weft !== null ? "weft" : "warp";
   const canUseSelectedRange = selectedBlockIds.length > 0;
+  const commonLengthFactor = [...model.warp.blocks, ...(model.weft?.blocks ?? [])].reduce((gcd, block) => {
+    let a = gcd;
+    let b = block.length;
+    while (b !== 0) [a, b] = [b, a % b];
+    return a;
+  }, 0);
   const backgroundStyle = backgroundUrl ? { backgroundImage: `url("${backgroundUrl}")` } : undefined;
 
   return (
@@ -767,9 +935,15 @@ function App() {
               <p className="eyebrow">THE WORKSHOP</p>
               <h2>Tartan editor</h2>
             </div>
-            <span className={`state-pill ${parseError ? "state-warning" : "state-ready"}`}>
-              <span className="state-dot" />{parseError ? "Code needs attention" : "Pattern in sync"}
-            </span>
+            <div className="panel-topline-actions">
+              <div className="history-controls" aria-label="Undo and redo">
+                <button type="button" className="button button-quiet button-small" onClick={undo} disabled={historyCounts.undo === 0} title="Undo last pattern change">↶ Undo</button>
+                <button type="button" className="button button-quiet button-small" onClick={redo} disabled={historyCounts.redo === 0} title="Redo pattern change">↷ Redo</button>
+              </div>
+              <span className={`state-pill ${parseError ? "state-warning" : "state-ready"}`}>
+                <span className="state-dot" />{parseError ? "Code needs attention" : "Pattern in sync"}
+              </span>
+            </div>
           </div>
 
           <section className="preview-section">
@@ -922,10 +1096,14 @@ function App() {
                 <h3>Thread layout</h3>
                 <p>Blocks are proportional runs of colour in the thread.</p>
               </div>
-              <button type="button" className={`button button-secondary button-small ${model.weft === null ? "is-active" : ""}`} onClick={toggleSameWeft}>
-                <span className={`toggle-indicator ${model.weft === null ? "on" : ""}`} />
-                Same warp &amp; weft
-              </button>
+              <div className="thread-heading-actions">
+                <button type="button" className="button button-quiet button-small" onClick={reduceToSmallestUnit} disabled={commonLengthFactor <= 1} title={commonLengthFactor > 1 ? `Divide every block by the common factor ${commonLengthFactor}` : "No common factor greater than 1"}>Reduce to unit{commonLengthFactor > 1 ? ` ÷${commonLengthFactor}` : ""}</button>
+                <button type="button" className="button button-quiet button-small" onClick={doubleAllLengths} title="Double every block length in both threads">Double all ×2</button>
+                <button type="button" className={`button button-secondary button-small ${model.weft === null ? "is-active" : ""}`} onClick={toggleSameWeft}>
+                  <span className={`toggle-indicator ${model.weft === null ? "on" : ""}`} />
+                  Same warp &amp; weft
+                </button>
+              </div>
             </div>
             <div className="thread-canvas">
               <ThreadTrack
@@ -943,36 +1121,39 @@ function App() {
                 onInsert={(boundary) => addBlockAt("warp", boundary)}
                 onMove={(blockId, boundary) => moveBlock("warp", blockId, boundary)}
                 onResize={(blockId, length) => resizeBlock("warp", blockId, length)}
+                onResizeStart={checkpointHistory}
               />
-              <div className="thread-divider" aria-hidden="true"><span /> <span className="thread-divider-label">warp × weft</span> <span /></div>
-              <ThreadTrack
-                name="weft"
-                thread={model.weft ?? model.warp}
-                colours={colourMap}
-                selectedBlockId={selectedBlockId}
-                selectedBlockIds={selectedBlockIds}
-                blockTokenDraft={blockTokenDraft}
-                activeTrackName={activeTrackName}
-                activeBlockReflected={activeBlockReflected}
-                onBlockTokenDraftChange={setBlockTokenDraft}
-                onCommitBlockToken={commitBlockToken}
-                onSelect={(entry, event) => handleThreadSelect("weft", entry, event)}
-                onInsert={(boundary) => addBlockAt("weft", boundary)}
-                onMove={(blockId, boundary) => moveBlock("weft", blockId, boundary)}
-                onResize={(blockId, length) => resizeBlock("weft", blockId, length)}
-              />
-              {model.weft === null && <p className="linked-thread-note"><Icon name="link" /> Weft mirrors the warp. Turn off “Same warp &amp; weft” to edit it independently.</p>}
+              {model.weft !== null && (
+                <>
+                  <div className="thread-divider" aria-hidden="true"><span /> <span className="thread-divider-label">warp × weft</span> <span /></div>
+                  <ThreadTrack
+                    name="weft"
+                    thread={model.weft}
+                    colours={colourMap}
+                    selectedBlockId={selectedBlockId}
+                    selectedBlockIds={selectedBlockIds}
+                    blockTokenDraft={blockTokenDraft}
+                    activeTrackName={activeTrackName}
+                    activeBlockReflected={activeBlockReflected}
+                    onBlockTokenDraftChange={setBlockTokenDraft}
+                    onCommitBlockToken={commitBlockToken}
+                    onSelect={(entry, event) => handleThreadSelect("weft", entry, event)}
+                    onInsert={(boundary) => addBlockAt("weft", boundary)}
+                    onMove={(blockId, boundary) => moveBlock("weft", blockId, boundary)}
+                    onResize={(blockId, length) => resizeBlock("weft", blockId, length)}
+                    onResizeStart={checkpointHistory}
+                  />
+                </>
+              )}
+              {model.weft === null && <p className="linked-thread-note"><Icon name="link" /> Weft is linked to the warp. Turn off “Same warp &amp; weft” to edit it independently.</p>}
             </div>
 
             <div className="thread-actions-bar">
-              <div className="inline-edit-guidance">
-                <strong>{selectedBlock ? `Selected block: ${selectedBlock.colourId}${selectedBlock.length}` : "Edit blocks directly"}</strong>
-                <span>Click a block and type its token, e.g. <code>a8</code>. Enter applies; Escape cancels. Invalid tokens are rejected.</span>
-              </div>
               {selectedBlock && (
                 <div className="selected-block-actions">
+                  <span className="selected-token">{selectedBlock.colourId}{selectedBlock.length}</span>
                   <button type="button" className="button button-danger button-small" onClick={() => deleteSelectedBlock(selectedThreadName)}><Icon name="trash" /> Delete</button>
-                  <button type="button" className="button button-quiet button-small" onClick={() => setSelectedBlockId(null)}>Done</button>
+                  <button type="button" className="button button-quiet button-small" onClick={clearBlockSelection}>Done</button>
                 </div>
               )}
               <div className="mirror-controls">
@@ -1008,9 +1189,10 @@ function App() {
               className={`tdf-editor ${parseError ? "has-error" : ""}`}
               value={code}
               spellCheck={false}
-              rows={3}
+              rows={2}
               aria-label="TDF source code"
               onChange={(event) => handleCodeChange(event.target.value)}
+              onBlur={() => { sourceEditTransactionRef.current = false; }}
             />
             {parseError ? (
               <div className="validation-message error-message"><span>!</span><div><strong>Invalid TDF</strong><p>{parseError}</p><small>The preview stays on the last valid pattern until this code can be parsed.</small></div><button type="button" className="button button-quiet button-small" onClick={() => applyModel(modelRef.current)}>Reset code</button></div>
