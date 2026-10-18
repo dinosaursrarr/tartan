@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 
+	"k8s.io/utils/clock"
+
 	"sett.fyi/tartan/internal/api"
 )
 
@@ -31,6 +33,11 @@ func Run(ctx context.Context, cfg *Config) error {
 	mux := http.NewServeMux()
 	weave := api.NewWeaveHandler(imageCache, wovenCache)
 	mux.Handle("/weave", weave)
+	random, err := api.NewRandomHandler(clock.RealClock{}, weave)
+	if err != nil {
+		return fmt.Errorf("creating random handler: %w", err)
+	}
+	mux.Handle("/random", random)
 
 	return serve(ctx, cfg, mux)
 }
