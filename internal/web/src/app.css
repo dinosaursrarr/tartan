@@ -495,3 +495,69 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .insert-slot:hover, .insert-slot:focus-visible, .insert-slot.drop-target { opacity: 1; border-color: #bac7b5; background: #e7ece2; }
 /* Keep a selected block's focus/selection outline visible over mirror decoration. */
 .thread-block.selected { outline: 3px solid #718b70; outline-offset: 2px; }
+
+/* Compact, readable catalogue results on mobile */
+@media (max-width: 480px) {
+  .catalogue-combobox,
+  .catalogue-input-wrap {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .catalogue-input-wrap {
+    flex: 1 1 auto;
+  }
+
+  .catalogue-menu {
+    max-height: min(280px, calc(100dvh - 200px));
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  /* One horizontal row per tartan */
+  .catalogue-option {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px;
+    min-width: 0;
+    min-height: 48px;
+    padding: 7px 8px;
+  }
+
+  /* Smaller circular swatch */
+  .catalogue-swatch {
+    width: 28px;
+    height: 28px;
+    flex: 0 0 28px;
+  }
+
+  /* Text must fit the available space */
+  .catalogue-option-details {
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto;
+    overflow: hidden;
+  }
+
+  .catalogue-option-name {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+  }
+
+  /* The TDF string adds clutter on a narrow screen */
+  .catalogue-option-pattern {
+    display: none;
+  }
+
+  /* Remove the secondary instruction from the menu header */
+  .catalogue-menu-top span:last-child {
+    display: none;
+  }
+}
