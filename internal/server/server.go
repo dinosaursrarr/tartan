@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 
@@ -38,6 +39,8 @@ func Run(ctx context.Context, cfg *Config) error {
 		return fmt.Errorf("creating random handler: %w", err)
 	}
 	mux.Handle("/random", random)
+	static := api.NewStaticHandler(cfg.WebPath, cfg.WebIndexPath)
+	mux.Handle("/", static)
 
 	return serve(ctx, cfg, mux)
 }
@@ -66,6 +69,8 @@ func serve(ctx context.Context, cfg *Config, handler http.Handler) error {
 	go func() {
 		serveErr <- server.Serve(listener)
 	}()
+
+	log.Printf("Listening on %v", cfg.Address)
 
 	// Block until either server fails or we're told to shutdown.
 	select {

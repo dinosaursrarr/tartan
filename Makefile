@@ -6,6 +6,14 @@ test: go-test
 
 GO_WILDCARD := $(shell go list ./... | grep -v /internal/web/)
 
+.PHONY: go-build
+go-build: web-build
+	go build -o bin/sett cmd/main.go
+
+.PHONY: go-run
+go-run: go-build
+	./bin/sett
+
 .PHONY: go-lint
 go-lint:
 	go tool -modfile tools/golangci-lint/go.mod golangci-lint run --config ./golangci.yml
