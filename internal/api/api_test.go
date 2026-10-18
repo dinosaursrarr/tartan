@@ -16,8 +16,6 @@ import (
 	"time"
 )
 
-const commonPattern = "a#112233[a1"
-
 func TestHandleSuccessfulFormats(t *testing.T) {
 	t.Parallel()
 
@@ -91,7 +89,7 @@ func TestHandleRejectsNonGETMethod(t *testing.T) {
 	t.Parallel()
 
 	handler := NewHandler(nil, nil)
-	response := performRequest(handler, http.MethodPost, commonPattern, "png")
+	response := performRequest(handler, http.MethodPost, "a#112233[a1", "png")
 
 	if response.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("Handle() status = %d, want %d", response.Code, http.StatusMethodNotAllowed)
@@ -160,7 +158,7 @@ func TestHandleRejectsUnsupportedFormat(t *testing.T) {
 	t.Parallel()
 
 	handler := NewHandler(nil, nil)
-	response := performRequest(handler, http.MethodGet, commonPattern, "jpg")
+	response := performRequest(handler, http.MethodGet, "a#112233[a1", "jpg")
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf(
 			"Handle() status = %d, want %d; body = %q",
@@ -219,8 +217,8 @@ func TestHandleCachesResponsesByFormat(t *testing.T) {
 	t.Parallel()
 
 	pattern := "a#FF0000b#00FF00[a1]b1"
-	imageCache := NewImageCache(8, time.Minute)
-	wovenCache := NewWovenCache(8, time.Minute)
+	imageCache := newTestImageCache(t, defaultImageCacheWeight, time.Minute)
+	wovenCache := newTestWovenCache(t, defaultWovenCacheWeight, time.Minute)
 	handler := NewHandler(imageCache, wovenCache)
 
 	tests := []struct {
@@ -253,7 +251,7 @@ func TestHandleCachesResponsesByFormat(t *testing.T) {
 		assertSuccessfulImageResponse(t, response, test.contentType)
 
 		key := imageCacheKey{pattern: pattern, format: test.cacheFormat}
-		entry, ok := imageCache.Get(key)
+		entry, ok := imageCache.GetIfPresent(key)
 		if !ok {
 			t.Fatalf("image cache has no entry for %s", test.name)
 		}
@@ -275,7 +273,7 @@ func TestHandleCachesResponsesByFormat(t *testing.T) {
 		}
 	}
 
-	woven, ok := wovenCache.Get(pattern)
+	woven, ok := wovenCache.GetIfPresent(pattern)
 	if !ok {
 		t.Fatal("woven cache does not contain the pattern after successful requests")
 	}
@@ -291,7 +289,7 @@ func TestHandleCachesResponsesByFormat(t *testing.T) {
 func TestHandleUsesWovenCacheOnImageCacheMiss(t *testing.T) {
 	t.Parallel()
 
-	pattern := commonPattern
+	pattern := "a#112233[a1"
 	cachedColour := color.RGBA{R: 0x12, G: 0x34, B: 0x56, A: 0xff}
 	cachedImage := image.NewRGBA(image.Rect(0, 0, 2, 2))
 	for y := range 2 {
@@ -300,8 +298,8 @@ func TestHandleUsesWovenCacheOnImageCacheMiss(t *testing.T) {
 		}
 	}
 
-	wovenCache := NewWovenCache(2, time.Minute)
-	wovenCache.Add(pattern, wovenCacheEntry{img: cachedImage, colourCount: 1})
+	wovenCache := newTestWovenCache(t, defaultWovenCacheWeight, time.Minute)
+	wovenCache.Set(pattern, wovenCacheEntry{img: cachedImage, colourCount: 1})
 	handler := NewHandler(nil, wovenCache)
 	response := performRequest(handler, http.MethodGet, pattern, "png")
 	assertSuccessfulImageResponse(t, response, "image/png")
@@ -338,19 +336,19 @@ func TestHandleDoesNotCacheRejectedResponses(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			imageCache := NewImageCache(8, time.Minute)
-			wovenCache := NewWovenCache(8, time.Minute)
+			imageCache := newTestImageCache(t, defaultImageCacheWeight, time.Minute)
+			wovenCache := newTestWovenCache(t, defaultWovenCacheWeight, time.Minute)
 			handler := NewHandler(imageCache, wovenCache)
 			response := performRequest(handler, http.MethodGet, test.pattern, "")
 			if response.Code != http.StatusBadRequest {
 				t.Fatalf("Handle() status = %d, want %d", response.Code, http.StatusBadRequest)
 			}
 
-			_, imageOK := imageCache.Get(imageCacheKey{pattern: test.pattern, format: pngFormat})
+			_, imageOK := imageCache.GetIfPresent(imageCacheKey{pattern: test.pattern, format: pngFormat})
 			if imageOK {
 				t.Error("rejected response was stored in the image cache")
 			}
-			_, wovenOK := wovenCache.Get(test.pattern)
+			_, wovenOK := wovenCache.GetIfPresent(test.pattern)
 			if wovenOK {
 				t.Error("rejected response was stored in the woven cache")
 			}
@@ -362,30 +360,30 @@ func TestHandleCacheEntriesExpire(t *testing.T) {
 	t.Parallel()
 
 	ttl := 100 * time.Millisecond
-	imageCache := NewImageCache(2, ttl)
-	wovenCache := NewWovenCache(2, ttl)
+	imageCache := newTestImageCache(t, defaultImageCacheWeight, ttl)
+	wovenCache := newTestWovenCache(t, defaultWovenCacheWeight, ttl)
 	handler := NewHandler(imageCache, wovenCache)
-	pattern := commonPattern
+	pattern := "a#112233[a1"
 	imageKey := imageCacheKey{pattern: pattern, format: pngFormat}
 
 	firstResponse := performRequest(handler, http.MethodGet, pattern, "")
 	assertSuccessfulImageResponse(t, firstResponse, "image/png")
 
-	_, imageOK := imageCache.Get(imageKey)
+	_, imageOK := imageCache.GetIfPresent(imageKey)
 	if !imageOK {
 		t.Fatal("image cache does not contain an entry after the request")
 	}
-	_, wovenOK := wovenCache.Get(pattern)
+	_, wovenOK := wovenCache.GetIfPresent(pattern)
 	if !wovenOK {
 		t.Fatal("woven cache does not contain an entry after the request")
 	}
 
 	time.Sleep(150 * time.Millisecond)
-	_, imageOK = imageCache.Get(imageKey)
+	_, imageOK = imageCache.GetIfPresent(imageKey)
 	if imageOK {
 		t.Fatal("image cache entry is still present after its TTL elapsed")
 	}
-	_, wovenOK = wovenCache.Get(pattern)
+	_, wovenOK = wovenCache.GetIfPresent(pattern)
 	if wovenOK {
 		t.Fatal("woven cache entry is still present after its TTL elapsed")
 	}
@@ -396,47 +394,129 @@ func TestHandleCacheEntriesExpire(t *testing.T) {
 		t.Fatal("response after cache expiry differs from initial response")
 	}
 
-	_, imageOK = imageCache.Get(imageKey)
+	_, imageOK = imageCache.GetIfPresent(imageKey)
 	if !imageOK {
 		t.Fatal("image cache does not contain an entry after the request refreshed it")
 	}
-	_, wovenOK = wovenCache.Get(pattern)
+	_, wovenOK = wovenCache.GetIfPresent(pattern)
 	if !wovenOK {
 		t.Fatal("woven cache does not contain an entry after the request refreshed it")
 	}
 }
 
-func TestHandleCachesEvictOldEntriesWhenFull(t *testing.T) {
+func TestImageCacheHonoursByteWeightLimit(t *testing.T) {
 	t.Parallel()
 
-	imageCache := NewImageCache(1, time.Minute)
-	wovenCache := NewWovenCache(1, time.Minute)
-	handler := NewHandler(imageCache, wovenCache)
-	firstPattern := commonPattern
-	secondPattern := "a#112233[a2"
+	const firstPattern = "a#112233[a1"
+	const secondPattern = "a#112233[a2"
 
-	firstResponse := performRequest(handler, http.MethodGet, firstPattern, "")
+	// Both encoded images should fit individually, but their combined size
+	// should exceed this deliberately small cache budget.
+	const maxWeight = 128
+	firstResponse := performRequest(NewHandler(nil, nil), http.MethodGet, firstPattern, "png")
 	assertSuccessfulImageResponse(t, firstResponse, "image/png")
-	secondResponse := performRequest(handler, http.MethodGet, secondPattern, "")
+	firstSize := firstResponse.Body.Len()
+
+	secondResponse := performRequest(NewHandler(nil, nil), http.MethodGet, secondPattern, "png")
 	assertSuccessfulImageResponse(t, secondResponse, "image/png")
+	secondSize := secondResponse.Body.Len()
 
-	_, firstImageOK := imageCache.Get(imageCacheKey{pattern: firstPattern, format: pngFormat})
-	if firstImageOK {
-		t.Fatal("first image cache entry is still present after capacity was exceeded")
+	if firstSize > maxWeight || secondSize > maxWeight {
+		t.Fatalf(
+			"test setup invalid: encoded sizes %d and %d must each fit within max weight %d",
+			firstSize,
+			secondSize,
+			maxWeight,
+		)
 	}
-	_, secondImageOK := imageCache.Get(imageCacheKey{pattern: secondPattern, format: pngFormat})
-	if !secondImageOK {
-		t.Fatal("image cache does not contain the most recent entry")
+	combinedSize := firstSize + secondSize
+	if combinedSize <= maxWeight {
+		t.Fatalf(
+			"test setup invalid: combined byte size %d does not exceed max weight %d",
+			combinedSize,
+			maxWeight,
+		)
 	}
 
-	_, firstWovenOK := wovenCache.Get(firstPattern)
-	if firstWovenOK {
-		t.Fatal("first woven cache entry is still present after capacity was exceeded")
+	imageCache := newTestImageCache(t, maxWeight, time.Minute)
+	handler := NewHandler(imageCache, nil)
+	for _, pattern := range []string{firstPattern, secondPattern} {
+		response := performRequest(handler, http.MethodGet, pattern, "png")
+		assertSuccessfulImageResponse(t, response, "image/png")
 	}
-	_, secondWovenOK := wovenCache.Get(secondPattern)
-	if !secondWovenOK {
-		t.Fatal("woven cache does not contain the most recent entry")
+
+	imageCache.CleanUp()
+	if got := imageCache.WeightedSize(); got > maxWeight {
+		t.Fatalf("image cache weight = %d, want <= %d bytes", got, maxWeight)
 	}
+
+	_, firstOK := imageCache.GetIfPresent(imageCacheKey{pattern: firstPattern, format: pngFormat})
+	_, secondOK := imageCache.GetIfPresent(imageCacheKey{pattern: secondPattern, format: pngFormat})
+	if firstOK && secondOK {
+		t.Fatalf(
+			"image cache retained both entries despite combined weight %d exceeding budget %d",
+			combinedSize,
+			maxWeight,
+		)
+	}
+	if !firstOK && !secondOK {
+		t.Fatal("image cache did not retain either entry even though each fits within the weight budget")
+	}
+}
+
+func TestWovenCacheHonoursPixelWeightLimit(t *testing.T) {
+	t.Parallel()
+
+	const firstPattern = "a#112233[a1"  // 2x2 output: 4 pixels.
+	const secondPattern = "a#112233[a2" // 4x4 output: 16 pixels.
+	const maxWeight = uint64(16)
+
+	wovenCache := newTestWovenCache(t, maxWeight, time.Minute)
+	handler := NewHandler(nil, wovenCache)
+	for _, pattern := range []string{firstPattern, secondPattern} {
+		response := performRequest(handler, http.MethodGet, pattern, "png")
+		assertSuccessfulImageResponse(t, response, "image/png")
+	}
+
+	wovenCache.CleanUp()
+	if got := wovenCache.WeightedSize(); got > maxWeight {
+		t.Fatalf("woven cache weight = %d, want <= %d pixels", got, maxWeight)
+	}
+
+	_, firstOK := wovenCache.GetIfPresent(firstPattern)
+	_, secondOK := wovenCache.GetIfPresent(secondPattern)
+	if firstOK && secondOK {
+		t.Fatal("woven cache retained both entries even though their combined pixel weight exceeds the budget")
+	}
+	if !firstOK && !secondOK {
+		t.Fatal("woven cache did not retain either entry even though each fits within the pixel budget")
+	}
+}
+
+const (
+	defaultImageCacheWeight = uint64(16 * 1024 * 1024)
+	defaultWovenCacheWeight = uint64(2 * 1024 * 1024)
+)
+
+func newTestImageCache(t *testing.T, maxWeight uint64, ttl time.Duration) ImageCache {
+	t.Helper()
+
+	cache, err := NewImageCache(maxWeight, ttl)
+	if err != nil {
+		t.Fatalf("NewImageCache() error = %v", err)
+	}
+	return cache
+}
+
+func newTestWovenCache(t *testing.T, maxWeight uint64, ttl time.Duration) WovenCache {
+	t.Helper()
+
+	// Woven cache weight is measured in pixels, not bytes.
+	cache, err := NewWovenCache(maxWeight, ttl)
+	if err != nil {
+		t.Fatalf("NewWovenCache() error = %v", err)
+	}
+	return cache
 }
 
 func performRequest(handler *Handler, method string, pattern string, format string) *httptest.ResponseRecorder {
