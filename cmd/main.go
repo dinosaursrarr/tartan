@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	address := flag.String("address", ":1746", "Address where the server should listen")
+	address := flag.String("address", "127.0.0.1:1746", "Address where the server should listen")
 	readHeaderTimeout := flag.Duration("read_header_timeout", 3*time.Second, "Timeout for reading headers")
 	readTimeout := flag.Duration("read_timeout", 30*time.Second, "Timeout for reading requests")
 	writeTimeout := flag.Duration("write_timeout", 30*time.Second, "Timeout for writing responses")

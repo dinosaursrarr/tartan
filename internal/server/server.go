@@ -61,6 +61,7 @@ func serve(ctx context.Context, cfg *Config, handler http.Handler) error {
 	if err != nil {
 		return fmt.Errorf("could not listen: %w", err)
 	}
+	log.Printf("Listening on %v", listener.Addr())
 
 	// Run Serve() in the background so we can also wait on ctx.
 	// Buffer of 1 so the goroutine can always send and exit, even if
@@ -69,8 +70,6 @@ func serve(ctx context.Context, cfg *Config, handler http.Handler) error {
 	go func() {
 		serveErr <- server.Serve(listener)
 	}()
-
-	log.Printf("Listening on %v", cfg.Address)
 
 	// Block until either server fails or we're told to shutdown.
 	select {
