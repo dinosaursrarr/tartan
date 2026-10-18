@@ -57,7 +57,7 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	imageKey := imageCacheKey{pattern: pattern, format: format}
 	if h.imageCache != nil {
-		res, ok := h.imageCache.Get(imageKey)
+		res, ok := h.imageCache.GetIfPresent(imageKey)
 		if ok {
 			_ = serveBytes(w, res.bytes, res.contentType)
 			return
@@ -86,7 +86,7 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.imageCache != nil && imageEntry != nil {
-		_ = h.imageCache.Add(imageKey, *imageEntry)
+		_, _ = h.imageCache.Set(imageKey, *imageEntry)
 	}
 }
 
@@ -99,7 +99,7 @@ var (
 
 func (h *Handler) getWoven(pattern string) (image.Image, int, int, error) {
 	if h.wovenCache != nil {
-		res, ok := h.wovenCache.Get(pattern)
+		res, ok := h.wovenCache.GetIfPresent(pattern)
 		if ok {
 			return res.img, res.colourCount, http.StatusOK, nil
 		}
@@ -124,7 +124,7 @@ func (h *Handler) getWoven(pattern string) (image.Image, int, int, error) {
 	}
 	colourCount := len(sett.Palette())
 	if h.wovenCache != nil {
-		h.wovenCache.Add(pattern, wovenCacheEntry{img: woven, colourCount: colourCount})
+		h.wovenCache.Set(pattern, wovenCacheEntry{img: woven, colourCount: colourCount})
 	}
 	return woven, colourCount, http.StatusOK, nil
 }
