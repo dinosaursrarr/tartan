@@ -528,7 +528,7 @@ func performRequest(handler *Handler, method string, pattern string, format stri
 
 	request := httptest.NewRequest(method, "/?"+values.Encode(), nil)
 	response := httptest.NewRecorder()
-	handler.Handle(response, request)
+	handler.ServeHTTP(response, request)
 	return response
 }
 

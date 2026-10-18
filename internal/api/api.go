@@ -32,8 +32,8 @@ func NewHandler(imageCache ImageCache, wovenCache WovenCache) *Handler {
 	return &Handler{imageCache: imageCache, wovenCache: wovenCache}
 }
 
-// Handle parses an incoming request and returns a rendered image.
-func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
+// ServeHTTP parses an incoming request and returns a rendered image.
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		log.Printf("bad request: had method %v", r.Method)
 		w.Header().Set("Allow", "GET")
