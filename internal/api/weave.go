@@ -21,19 +21,19 @@ import (
 
 const maxDimension = 512
 
-// Handler providers the API interface.
-type Handler struct {
+// WeaveHandler providers the API interface for weaving.
+type WeaveHandler struct {
 	imageCache ImageCache
 	wovenCache WovenCache
 }
 
-// NewHandler creates a new handler so we can serve the API.
-func NewHandler(imageCache ImageCache, wovenCache WovenCache) *Handler {
-	return &Handler{imageCache: imageCache, wovenCache: wovenCache}
+// NewWeaveHandler creates a new handler so we can serve the API.
+func NewWeaveHandler(imageCache ImageCache, wovenCache WovenCache) *WeaveHandler {
+	return &WeaveHandler{imageCache: imageCache, wovenCache: wovenCache}
 }
 
 // ServeHTTP parses an incoming request and returns a rendered image.
-func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *WeaveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		log.Printf("bad request: had method %v", r.Method)
 		w.Header().Set("Allow", "GET")
@@ -97,7 +97,7 @@ var (
 	errTooTall            = fmt.Errorf("exceeds max height of %d", maxDimension)
 )
 
-func (h *Handler) getWoven(pattern string) (image.Image, int, int, error) {
+func (h *WeaveHandler) getWoven(pattern string) (image.Image, int, int, error) {
 	if h.wovenCache != nil {
 		res, ok := h.wovenCache.GetIfPresent(pattern)
 		if ok {

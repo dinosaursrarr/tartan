@@ -29,8 +29,8 @@ func Run(ctx context.Context, cfg *Config) error {
 	}
 
 	mux := http.NewServeMux()
-	handler := api.NewHandler(imageCache, wovenCache)
-	mux.Handle("/weave", handler)
+	weave := api.NewWeaveHandler(imageCache, wovenCache)
+	mux.Handle("/weave", weave)
 
 	return serve(ctx, cfg, mux)
 }
