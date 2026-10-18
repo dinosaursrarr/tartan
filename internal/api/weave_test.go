@@ -54,7 +54,7 @@ func TestHandleSuccessfulFormats(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			handler := NewHandler(nil, nil)
+			handler := NewWeaveHandler(nil, nil)
 			response := performRequest(handler, http.MethodGet, "a#FF0000b#00FF00[a1]b1", test.format)
 
 			assertSuccessfulImageResponse(t, response, test.wantType)
@@ -88,7 +88,7 @@ func TestHandleSuccessfulFormats(t *testing.T) {
 func TestHandleRejectsNonGETMethod(t *testing.T) {
 	t.Parallel()
 
-	handler := NewHandler(nil, nil)
+	handler := NewWeaveHandler(nil, nil)
 	response := performRequest(handler, http.MethodPost, "a#112233[a1", "png")
 
 	if response.Code != http.StatusMethodNotAllowed {
@@ -140,7 +140,7 @@ func TestHandleRejectsInvalidPatterns(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			handler := NewHandler(nil, nil)
+			handler := NewWeaveHandler(nil, nil)
 			response := performRequest(handler, http.MethodGet, test.pattern, "")
 			if response.Code != http.StatusBadRequest {
 				t.Fatalf(
@@ -157,7 +157,7 @@ func TestHandleRejectsInvalidPatterns(t *testing.T) {
 func TestHandleRejectsUnsupportedFormat(t *testing.T) {
 	t.Parallel()
 
-	handler := NewHandler(nil, nil)
+	handler := NewWeaveHandler(nil, nil)
 	response := performRequest(handler, http.MethodGet, "a#112233[a1", "jpg")
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf(
@@ -196,7 +196,7 @@ func TestHandleRejectsThreadsOverMaximumDimension(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			handler := NewHandler(nil, nil)
+			handler := NewWeaveHandler(nil, nil)
 			response := performRequest(handler, http.MethodGet, test.pattern, "")
 			if response.Code != http.StatusBadRequest {
 				t.Fatalf(
@@ -219,7 +219,7 @@ func TestHandleCachesResponsesByFormat(t *testing.T) {
 	pattern := "a#FF0000b#00FF00[a1]b1"
 	imageCache := newTestImageCache(t, defaultImageCacheWeight, time.Minute)
 	wovenCache := newTestWovenCache(t, defaultWovenCacheWeight, time.Minute)
-	handler := NewHandler(imageCache, wovenCache)
+	handler := NewWeaveHandler(imageCache, wovenCache)
 
 	tests := []struct {
 		name        string
@@ -300,7 +300,7 @@ func TestHandleUsesWovenCacheOnImageCacheMiss(t *testing.T) {
 
 	wovenCache := newTestWovenCache(t, defaultWovenCacheWeight, time.Minute)
 	wovenCache.Set(pattern, wovenCacheEntry{img: cachedImage, colourCount: 1})
-	handler := NewHandler(nil, wovenCache)
+	handler := NewWeaveHandler(nil, wovenCache)
 	response := performRequest(handler, http.MethodGet, pattern, "png")
 	assertSuccessfulImageResponse(t, response, "image/png")
 
@@ -338,7 +338,7 @@ func TestHandleDoesNotCacheRejectedResponses(t *testing.T) {
 
 			imageCache := newTestImageCache(t, defaultImageCacheWeight, time.Minute)
 			wovenCache := newTestWovenCache(t, defaultWovenCacheWeight, time.Minute)
-			handler := NewHandler(imageCache, wovenCache)
+			handler := NewWeaveHandler(imageCache, wovenCache)
 			response := performRequest(handler, http.MethodGet, test.pattern, "")
 			if response.Code != http.StatusBadRequest {
 				t.Fatalf("Handle() status = %d, want %d", response.Code, http.StatusBadRequest)
@@ -362,7 +362,7 @@ func TestHandleCacheEntriesExpire(t *testing.T) {
 	ttl := 100 * time.Millisecond
 	imageCache := newTestImageCache(t, defaultImageCacheWeight, ttl)
 	wovenCache := newTestWovenCache(t, defaultWovenCacheWeight, ttl)
-	handler := NewHandler(imageCache, wovenCache)
+	handler := NewWeaveHandler(imageCache, wovenCache)
 	pattern := "a#112233[a1"
 	imageKey := imageCacheKey{pattern: pattern, format: pngFormat}
 
@@ -413,11 +413,11 @@ func TestImageCacheHonoursByteWeightLimit(t *testing.T) {
 	// Both encoded images should fit individually, but their combined size
 	// should exceed this deliberately small cache budget.
 	const maxWeight = 128
-	firstResponse := performRequest(NewHandler(nil, nil), http.MethodGet, firstPattern, "png")
+	firstResponse := performRequest(NewWeaveHandler(nil, nil), http.MethodGet, firstPattern, "png")
 	assertSuccessfulImageResponse(t, firstResponse, "image/png")
 	firstSize := firstResponse.Body.Len()
 
-	secondResponse := performRequest(NewHandler(nil, nil), http.MethodGet, secondPattern, "png")
+	secondResponse := performRequest(NewWeaveHandler(nil, nil), http.MethodGet, secondPattern, "png")
 	assertSuccessfulImageResponse(t, secondResponse, "image/png")
 	secondSize := secondResponse.Body.Len()
 
@@ -439,7 +439,7 @@ func TestImageCacheHonoursByteWeightLimit(t *testing.T) {
 	}
 
 	imageCache := newTestImageCache(t, maxWeight, time.Minute)
-	handler := NewHandler(imageCache, nil)
+	handler := NewWeaveHandler(imageCache, nil)
 	for _, pattern := range []string{firstPattern, secondPattern} {
 		response := performRequest(handler, http.MethodGet, pattern, "png")
 		assertSuccessfulImageResponse(t, response, "image/png")
@@ -472,7 +472,7 @@ func TestWovenCacheHonoursPixelWeightLimit(t *testing.T) {
 	const maxWeight = uint64(16)
 
 	wovenCache := newTestWovenCache(t, maxWeight, time.Minute)
-	handler := NewHandler(nil, wovenCache)
+	handler := NewWeaveHandler(nil, wovenCache)
 	for _, pattern := range []string{firstPattern, secondPattern} {
 		response := performRequest(handler, http.MethodGet, pattern, "png")
 		assertSuccessfulImageResponse(t, response, "image/png")
@@ -519,7 +519,7 @@ func newTestWovenCache(t *testing.T, maxWeight uint64, ttl time.Duration) WovenC
 	return cache
 }
 
-func performRequest(handler *Handler, method string, pattern string, format string) *httptest.ResponseRecorder {
+func performRequest(handler *WeaveHandler, method string, pattern string, format string) *httptest.ResponseRecorder {
 	values := url.Values{}
 	values.Set("pattern", pattern)
 	if format != "" {
@@ -528,7 +528,7 @@ func performRequest(handler *Handler, method string, pattern string, format stri
 
 	request := httptest.NewRequest(method, "/?"+values.Encode(), nil)
 	response := httptest.NewRecorder()
-	handler.Handle(response, request)
+	handler.ServeHTTP(response, request)
 	return response
 }
 
