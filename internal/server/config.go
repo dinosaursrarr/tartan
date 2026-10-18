@@ -15,4 +15,7 @@ type Config struct {
 	WriteTimeout        time.Duration
 	IdleTimeout         time.Duration
 	ShutdownGracePeriod time.Duration
+
+	WebPath      string
+	WebIndexPath string
 }

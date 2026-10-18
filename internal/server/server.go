@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 
@@ -38,6 +39,8 @@ func Run(ctx context.Context, cfg *Config) error {
 		return fmt.Errorf("creating random handler: %w", err)
 	}
 	mux.Handle("/random", random)
+	static := api.NewStaticHandler(cfg.WebPath, cfg.WebIndexPath)
+	mux.Handle("/", static)
 
 	return serve(ctx, cfg, mux)
 }
@@ -58,6 +61,7 @@ func serve(ctx context.Context, cfg *Config, handler http.Handler) error {
 	if err != nil {
 		return fmt.Errorf("could not listen: %w", err)
 	}
+	log.Printf("Listening on %v", listener.Addr())
 
 	// Run Serve() in the background so we can also wait on ctx.
 	// Buffer of 1 so the goroutine can always send and exit, even if

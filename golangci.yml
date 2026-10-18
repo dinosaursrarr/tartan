@@ -17,6 +17,8 @@ linters:
     - wsl # Been deprecated in favour of wsl_v5
     - wsl_v5 # Disagree with this and think it made it less clear.
   exclusions:
+    paths:
+      - internal/web
     rules:
       - path: _test\.go
         # These were noisy and unhelpful in test code

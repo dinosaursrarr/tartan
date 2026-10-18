@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	address := flag.String("address", ":1746", "Address where the server should listen")
+	address := flag.String("address", "127.0.0.1:1746", "Address where the server should listen")
 	readHeaderTimeout := flag.Duration("read_header_timeout", 3*time.Second, "Timeout for reading headers")
 	readTimeout := flag.Duration("read_timeout", 30*time.Second, "Timeout for reading requests")
 	writeTimeout := flag.Duration("write_timeout", 30*time.Second, "Timeout for writing responses")
@@ -31,6 +31,9 @@ func main() {
 	)
 	wovenCacheTTL := flag.Duration("woven_cache_ttl", time.Hour*24*365, "Max cached lifetime of unencoded images")
 
+	webPath := flag.String("web_path", "internal/web/dist", "Path to the static website to be served")
+	webIndexPath := flag.String("web_index_path", "index.html", "Path to the index file for the static website")
+
 	flag.Parse()
 
 	cfg := server.Config{
@@ -44,6 +47,8 @@ func main() {
 		ImageCacheTTL:       nonZeroDuration(*imageCacheTTL, "image_cache_ttl"),
 		WovenCacheMaxPixels: *wovenCacheMaxPixels,
 		WovenCacheTTL:       nonZeroDuration(*wovenCacheTTL, "woven_cache_ttl"),
+		WebPath:             *webPath,
+		WebIndexPath:        *webIndexPath,
 	}
 	err := server.Run(context.Background(), &cfg)
 	if err != nil {
