@@ -50,8 +50,10 @@ function makeThread(blocks: ThreadBlock[], mirrorBlockIds: string[] | null = nul
   return { blocks, mirrorIds: mirrorBlockIds?.length ? mirrorBlockIds : null };
 }
 
+// MacKenzie-inspired classic palette and sett. The final stray `)` in the originally
+// supplied example is omitted because the Go parser accepts one matched pair only.
 export const STARTER_TDF =
-  "a#243D35b#C7A75Ec#E0D7C3d#7D2A3C[a8(b3c2)d7a4]b4c2a5d3";
+  "r#aa0000b#000052k#000000w#aaaaaag#11450d[b12(k2b2k2b2k12g12k1w2k1g12k12b12k1)r2";
 
 export function createStarterModel(): TartanModel {
   return parseTdf(STARTER_TDF);

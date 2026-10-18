@@ -421,3 +421,77 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 /* Interaction targets sit above the inline text field without affecting block width. */
 .thread-block-group .resize-handle { z-index: 14; }
 .thread-block-group .drag-grip { z-index: 15; }
+
+/* Modular editor layout and accessible block interaction. */
+.site-header { margin-bottom: 15px; padding: 4px 12px 2px; }
+.site-header h1 { margin: 0; }
+.editor-topline { align-items: center; padding-bottom: 16px; }
+.editor-topline h2 { font-size: clamp(22px, 3vw, 30px); }
+.editor-topline p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+.preview-first-section { margin: -8px -8px 4px; }
+.preview-first { padding-top: 0; }
+.preview-first .section-heading { margin-bottom: 12px; }
+.repeat-preview { position: relative; width: 100%; height: clamp(285px, 38vw, 440px); overflow: hidden; border: 1px solid #d9d8ce; border-radius: 12px; background-color: #e6e4d9; background-image: repeating-linear-gradient(0deg, #263e34 0 24px, #a92732 24px 39px, #d3c8a5 39px 46px, #17264c 46px 58px); background-repeat: repeat; box-shadow: inset 0 0 0 1px rgba(255,255,255,.35); }
+.preview-overlay-message { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 24px; text-align: center; color: #3c463a; background: rgba(250,249,244,.76); font-size: 13px; }
+.preview-overlay-message.preview-error { color: #893f39; }
+.preview-metadata { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; color: #828579; font-size: 10px; }
+.preview-tools { display: flex; align-items: center; gap: 3px; }
+.catalogue-swatch { width: 40px; height: 40px; flex: 0 0 40px; object-fit: cover; object-position: center; border-radius: 50%; border: 1px solid rgba(45,51,42,.32); background: #e4e1d5; box-shadow: inset 0 0 0 2px rgba(255,255,255,.35); }
+.catalogue-option { align-items: center; justify-content: flex-start; min-height: 54px; gap: 11px; padding: 7px 9px; }
+.catalogue-option-details { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+.catalogue-option-name { font-size: 12px; }
+.catalogue-option-pattern { max-width: 100%; width: 100%; }
+.catalogue-input-wrap { display: flex; flex: 1 1 auto; width: 100%; min-width: 0; align-items: center; gap: 8px; }
+.catalogue-input-wrap > .icon-button { flex: 0 0 auto; }
+.catalogue-input-wrap > svg { flex: 0 0 auto; color: #788174; }
+.catalogue-input-wrap input { flex: 1; min-width: 0; }
+.thread-block-frame { position: relative; display: block; flex: 0 0 auto; min-width: 38px; }
+.thread-block-frame .thread-block { width: 100%; min-width: 0; }
+.thread-block-frame.drag-target { outline: 3px solid #547653; outline-offset: 2px; border-radius: 7px; }
+.block-token-input { position: absolute; inset: 0; z-index: 18; width: 100%; min-width: 0; height: 100%; padding: 7px 1px 2px; border: 2px solid #334e3d; border-radius: 6px; background: #fffef5; color: #243328; box-shadow: 0 0 0 3px rgba(255,255,248,.92), 0 3px 12px rgba(20,28,20,.2); font-family: var(--mono); font-size: 12px; font-weight: 700; text-align: center; outline: none; }
+.drag-grip { border: 0; padding: 0; color: inherit; cursor: grab; }
+.same-thread-toggle { display: inline-flex; align-items: center; gap: 7px; color: #526052; font-size: 11px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+.same-thread-toggle input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.same-thread-toggle input:focus-visible + .toggle-indicator { outline: 3px solid rgba(76,111,91,.55); outline-offset: 2px; }
+.same-thread-toggle input:checked + .toggle-indicator { background: #496650; border-color: #496650; box-shadow: inset 0 0 0 3px #edf2e9; }
+.selected-block-actions-multi { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; width: 100%; }
+.selected-token-list { display: flex; flex-wrap: wrap; gap: 5px; min-width: 0; }
+.mobile-move-controls { display: none; gap: 5px; }
+.footer-project-name { margin: 0; color: #71766b; font-size: 12px; }
+.disabled-link { opacity: .45; cursor: not-allowed; }
+
+@media (max-width: 760px) {
+  .preview-first-section { margin-inline: -4px; }
+  .repeat-preview { height: 265px; }
+  .thread-track { min-width: max-content; }
+  .drag-grip { display: none !important; }
+  .mobile-move-controls { display: flex; }
+  .thread-block { cursor: pointer; }
+  .thread-actions-bar { align-items: flex-start; }
+  .selected-block-actions-multi { align-items: flex-start; }
+  .footer-topline { align-items: flex-start; }
+}
+@media (max-width: 480px) {
+  .site-shell { padding-inline: 10px; padding-top: 18px; }
+  .site-header h1 { font-size: 28px; }
+  .editor-panel { padding: 14px; border-width: 2px; }
+  .repeat-preview { height: 235px; }
+  .preview-heading { flex-direction: column; }
+  .preview-tools { width: 100%; justify-content: flex-end; }
+  .panel-topline-actions { gap: 5px; }
+  .history-controls .button { padding-inline: 6px; }
+  .selected-block-actions-multi > .button { white-space: normal; }
+  .thread-track { min-height: 61px; }
+  .thread-block { min-height: 52px; }
+  .footer-project-name { max-width: 100%; }
+}
+
+/* Mirror/source distinction remains obvious even when several blocks are selected. */
+.thread-block.mirror-source { outline: 2px solid #d8b757; outline-offset: -4px; box-shadow: inset 0 0 0 3px rgba(242,221,145,.72), inset 0 1px 0 rgba(255,255,255,.16); }
+.thread-block.mirror-reflected { border: 2px dashed #ead78c; box-shadow: inset 0 0 0 2px rgba(251,247,224,.62), inset 0 1px 0 rgba(255,255,255,.16); }
+.thread-block.mirror-reflected::after { background: repeating-linear-gradient(135deg, transparent 0 6px, rgba(255,255,255,.28) 6px 9px); }
+.thread-block.multi-selected { outline: 3px solid #d0a13e; outline-offset: 2px; filter: brightness(1.05); }
+.insert-slot { opacity: .22; }
+.insert-slot:hover, .insert-slot:focus-visible, .insert-slot.drop-target { opacity: 1; border-color: #bac7b5; background: #e7ece2; }
+/* Keep a selected block's focus/selection outline visible over mirror decoration. */
+.thread-block.selected { outline: 3px solid #718b70; outline-offset: 2px; }
