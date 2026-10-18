@@ -325,3 +325,53 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
+
+/* Editor usability refinements: let the weave lead, and edit block tokens in place. */
+.editor-panel { width: min(100%, 1040px); }
+.preview-section { padding-top: 22px; margin-top: 0; border-top: 0; }
+.woven-preview { height: clamp(280px, 38vw, 460px); }
+.thread-block-group { position: relative; }
+.block-inline-editor {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  min-width: 54px;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 12px 4px 3px;
+  border: 2px solid #334e3d;
+  border-radius: 6px;
+  box-shadow: 0 0 0 3px rgba(255,255,248,.92), 0 3px 12px rgba(20,28,20,.2);
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+  outline: none;
+}
+.block-inline-editor:focus { outline: 2px solid rgba(255,255,245,.98); outline-offset: 2px; }
+.thread-actions-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px 14px;
+  margin-top: 12px;
+  padding: 12px 13px;
+  border: 1px solid #deded3;
+  border-radius: 10px;
+  background: rgba(255,255,251,.78);
+}
+.inline-edit-guidance { display: flex; flex-direction: column; min-width: 0; gap: 4px; }
+.inline-edit-guidance strong { color: #384d3d; font-size: 11px; }
+.inline-edit-guidance span { color: #85877c; font-size: 10px; line-height: 1.5; }
+.inline-edit-guidance code { color: #3e5a45; font-family: var(--mono); font-size: 10px; }
+.selected-block-actions { display: flex; align-items: center; gap: 6px; }
+.thread-actions-bar .mirror-controls { grid-column: 1 / -1; margin-top: 0; padding-top: 10px; }
+
+@media (max-width: 640px) {
+  .woven-preview { height: 260px; }
+  .thread-actions-bar { grid-template-columns: minmax(0, 1fr); }
+  .selected-block-actions { justify-content: flex-start; }
+  .thread-actions-bar .mirror-controls { grid-column: auto; }
+}

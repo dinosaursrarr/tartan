@@ -115,6 +115,11 @@ function ThreadTrack({
   colours,
   selectedBlockId,
   selectedBlockIds,
+  blockTokenDraft,
+  activeTrackName,
+  activeBlockReflected,
+  onBlockTokenDraftChange,
+  onCommitBlockToken,
   onSelect,
   onInsert,
   onMove,
@@ -125,6 +130,11 @@ function ThreadTrack({
   colours: Map<string, string>;
   selectedBlockId: string | null;
   selectedBlockIds: string[];
+  blockTokenDraft: string;
+  activeTrackName: ThreadName | null;
+  activeBlockReflected: boolean;
+  onBlockTokenDraftChange: (value: string) => void;
+  onCommitBlockToken: (name: ThreadName, blockId: string, token: string) => void;
   onSelect: (block: ExpandedBlock, event: MouseEvent<HTMLButtonElement>) => void;
   onInsert: (displayBoundary: number) => void;
   onMove: (blockId: string, displayBoundary: number) => void;
@@ -200,6 +210,16 @@ function ThreadTrack({
             const colourText = contrastFor(hex);
             const previousBlock = index > 0 ? displayBlocks[index - 1].block : null;
             const nextBlock = index < displayBlocks.length - 1 ? displayBlocks[index + 1].block : null;
+            const editingThisOccurrence =
+              selectedBlockId === entry.block.id &&
+              activeTrackName === name &&
+              activeBlockReflected === entry.reflected;
+            const draftToken = editingThisOccurrence ? blockTokenDraft : `${entry.block.colourId}${entry.block.length}`;
+            const blockWidth = Math.max(
+              26,
+              entry.block.length * 10 + 16,
+              editingThisOccurrence ? draftToken.length * 12 + 22 : 0,
+            );
             const classNames = [
               "thread-block",
               entry.block.length <= 3 ? "compact-block" : "",
@@ -227,7 +247,7 @@ function ThreadTrack({
                 <button
                   type="button"
                   className={classNames}
-                  style={{ backgroundColor: hex, color: colourText, width: `${Math.max(26, entry.block.length * 10 + 16)}px` }}
+                  style={{ backgroundColor: hex, color: colourText, width: `${blockWidth}px` }}
                   onClick={(event) => onSelect(entry, event)}
                   draggable
                   onDragStart={(event) => {
@@ -249,6 +269,36 @@ function ThreadTrack({
                   <span className="resize-handle resize-left" aria-hidden="true" onPointerDown={(event) => startResize(event, entry.block, "left", previousBlock)} />
                   <span className="resize-handle resize-right" aria-hidden="true" onPointerDown={(event) => startResize(event, entry.block, "right", nextBlock)} />
                 </button>
+                {editingThisOccurrence && (
+                  <input
+                    className="block-inline-editor"
+                    type="text"
+                    autoFocus
+                    autoComplete="off"
+                    spellCheck={false}
+                    aria-label={`Edit block token, colour letter and length; current block ${entry.block.colourId}${entry.block.length}`}
+                    title="Enter a colour letter and positive length, such as a8. Enter applies; Escape cancels."
+                    value={blockTokenDraft}
+                    style={{ backgroundColor: hex, color: colourText, width: `${blockWidth}px` }}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onChange={(event) => onBlockTokenDraftChange(event.target.value)}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => event.stopPropagation()}
+                    onBlur={(event) => onCommitBlockToken(name, entry.block.id, event.currentTarget.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        event.currentTarget.blur();
+                      } else if (event.key === "Escape") {
+                        event.preventDefault();
+                        const original = `${entry.block.colourId}${entry.block.length}`;
+                        event.currentTarget.value = original;
+                        onBlockTokenDraftChange(original);
+                        event.currentTarget.blur();
+                      }
+                    }}
+                  />
+                )}
               </div>
             );
           })}
@@ -297,7 +347,9 @@ function App() {
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
   const [selectedBlockIds, setSelectedBlockIds] = useState<string[]>([]);
   const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null);
-  const [lengthDraft, setLengthDraft] = useState("");
+  const [blockTokenDraft, setBlockTokenDraft] = useState("");
+  const [activeTrackName, setActiveTrackName] = useState<ThreadName | null>(null);
+  const [activeBlockReflected, setActiveBlockReflected] = useState(false);
   const [colourDrafts, setColourDrafts] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const [aboutOpen, setAboutOpen] = useState(true);
@@ -449,7 +501,9 @@ function App() {
       setSelectionAnchor(entry.block.id);
     }
     setSelectedBlockId(entry.block.id);
-    setLengthDraft(String(entry.block.length));
+    setBlockTokenDraft(`${entry.block.colourId}${entry.block.length}`);
+    setActiveTrackName(name);
+    setActiveBlockReflected(entry.reflected);
   }, [selectionAnchor]);
 
   const addBlockAt = useCallback((name: ThreadName, boundary: number) => {
@@ -468,7 +522,9 @@ function App() {
     applyModel(next);
     if (newBlock) {
       setSelectedBlockId(newBlock.block.id);
-      setLengthDraft(String(newBlock.block.length));
+      setBlockTokenDraft(`${newBlock.block.colourId}${newBlock.block.length}`);
+      setActiveTrackName(name);
+      setActiveBlockReflected(false);
       setSelectedBlockIds([newBlock.block.id]);
       setSelectionAnchor(newBlock.block.id);
     }
@@ -495,11 +551,52 @@ function App() {
       }),
     }));
     if (serialiseTdf(next) !== serialiseTdf(current)) applyModel(next);
-    if (selectedBlockId === blockId) setLengthDraft(String(Math.max(1, Math.floor(length))));
-    else if (selectedBlockId === neighbourId && neighbourLength !== undefined) {
-      setLengthDraft(String(Math.max(1, Math.floor(neighbourLength))));
+    if (selectedBlockId && (selectedBlockId === blockId || selectedBlockId === neighbourId)) {
+      const updatedSelection = findBlock(next, selectedBlockId);
+      if (updatedSelection) setBlockTokenDraft(`${updatedSelection.colourId}${updatedSelection.length}`);
     }
   }, [applyModel, selectedBlockId]);
+
+  const commitBlockToken = useCallback((name: ThreadName, blockId: string, rawToken: string) => {
+    const current = modelRef.current;
+    const effectiveName: ThreadName = name === "weft" && current.weft === null ? "warp" : name;
+    const sourceBlock = findBlock(current, blockId);
+    if (!sourceBlock) return;
+
+    const token = rawToken;
+    const originalToken = `${sourceBlock.colourId}${sourceBlock.length}`;
+    if (token === originalToken) {
+      setBlockTokenDraft(originalToken);
+      return;
+    }
+
+    const match = /^([a-z])([1-9][0-9]*)$/.exec(token);
+    if (!match) {
+      setBlockTokenDraft(originalToken);
+      notify("Invalid block. Enter one lowercase colour letter followed by a positive integer, e.g. a8.");
+      return;
+    }
+
+    const colourId = match[1];
+    const length = Number(match[2]);
+    if (!current.colours.some((colour) => colour.id === colourId)) {
+      setBlockTokenDraft(originalToken);
+      notify(`Colour “${colourId}” is not in the palette. Add it first or choose an existing colour letter.`);
+      return;
+    }
+    if (!Number.isSafeInteger(length) || length < 1) {
+      setBlockTokenDraft(originalToken);
+      notify("Block length must be a positive safe integer.");
+      return;
+    }
+
+    const next = modelWithThread(current, effectiveName, (thread) => ({
+      ...thread,
+      blocks: thread.blocks.map((block) => block.id === blockId ? { ...block, colourId, length } : block),
+    }));
+    applyModel(next);
+    setBlockTokenDraft(token);
+  }, [applyModel, notify]);
 
   const changeColour = useCallback((colourId: string, hex: string) => {
     if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) return;
@@ -520,7 +617,9 @@ function App() {
       setSelectedBlockId(null);
       setSelectedBlockIds([]);
       setSelectionAnchor(null);
-      setLengthDraft("");
+      setBlockTokenDraft("");
+      setActiveTrackName(null);
+      setActiveBlockReflected(false);
     } catch (error) {
       setParseError(error instanceof Error ? error.message : "Invalid TDF code.");
     }
@@ -559,7 +658,9 @@ function App() {
     setSelectedBlockId(null);
     setSelectedBlockIds([]);
     setSelectionAnchor(null);
-    setLengthDraft("");
+    setBlockTokenDraft("");
+    setActiveTrackName(null);
+    setActiveBlockReflected(false);
   };
 
   const applyMirrorSelection = (name: ThreadName) => {
@@ -586,7 +687,9 @@ function App() {
       setSelectedBlockId(null);
       setSelectedBlockIds([]);
       setSelectionAnchor(null);
-      setLengthDraft("");
+      setBlockTokenDraft("");
+      setActiveTrackName(null);
+      setActiveBlockReflected(false);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Unable to delete block.");
     }
@@ -606,7 +709,9 @@ function App() {
       setSelectedBlockId(null);
       setSelectedBlockIds([]);
       setSelectionAnchor(null);
-      setLengthDraft("");
+      setBlockTokenDraft("");
+      setActiveTrackName(null);
+      setActiveBlockReflected(false);
       setColourDrafts({});
       notify(`Loaded ${item.name}`);
     } catch (error) {
@@ -640,7 +745,7 @@ function App() {
 
   const hasMirrorWarp = Boolean(getThreadMirrorRange(model.warp));
   const hasMirrorWeft = Boolean(model.weft && getThreadMirrorRange(model.weft));
-  const selectedThreadName: ThreadName = model.weft && model.weft.blocks.some((block) => block.id === selectedBlockId) ? "weft" : "warp";
+  const selectedThreadName: ThreadName = activeTrackName === "weft" && model.weft !== null ? "weft" : "warp";
   const canUseSelectedRange = selectedBlockIds.length > 0;
   const backgroundStyle = backgroundUrl ? { backgroundImage: `url("${backgroundUrl}")` } : undefined;
 
@@ -666,6 +771,37 @@ function App() {
               <span className="state-dot" />{parseError ? "Code needs attention" : "Pattern in sync"}
             </span>
           </div>
+
+          <section className="preview-section">
+            <div className="section-heading preview-heading">
+              <div>
+                <p className="eyebrow">THE WEAVE</p>
+                <h3>Repeat preview</h3>
+                <p>Your rendered tile, repeated to show the full rhythm of the sett.</p>
+              </div>
+              <div className="preview-controls">
+                <div className="zoom-control" aria-label="Preview zoom">
+                  {TILE_ZOOMS.map((value) => <button type="button" key={value} className={zoom === value ? "selected" : ""} onClick={() => setZoom(value)}>{value === 0.65 ? "Small" : value === 1 ? "100%" : "Large"}</button>)}
+                </div>
+                <button type="button" className="button button-quiet button-small" onClick={() => { previewPatternRef.current = ""; setEndpointError(null); setPreviewUrl(null); setPreviewNonce((value) => value + 1); }}><Icon name="refresh" /> Refresh</button>
+              </div>
+            </div>
+            <div className="preview-frame">
+              <div
+                className={`woven-preview ${previewUrl ? "has-image" : ""}`}
+                style={{
+                  backgroundImage: previewUrl ? `url("${previewUrl}")` : undefined,
+                  backgroundSize: previewUrl && tileSize ? `${Math.max(1, tileSize.width * zoom)}px ${Math.max(1, tileSize.height * zoom)}px` : undefined,
+                }}
+                role="img"
+                aria-label="Tartan tile repeated as a background preview"
+              >
+                {!previewUrl && <div className="preview-loading"><span className="spinner" /><strong>{endpointError ? "Preview unavailable" : "Rendering tartan…"}</strong><p>{endpointError ?? "Waiting for the weave endpoint."}</p></div>}
+                {previewUrl && endpointError && <div className="preview-warning">Last successful preview shown · {endpointError}</div>}
+              </div>
+              <div className="preview-caption"><span><span className="live-dot" /> {previewUrl && !parseError && !endpointError ? "Live from /weave" : parseError ? "Showing last valid pattern" : "Waiting for renderer"}</span><span>{tileSize ? `${tileSize.width} × ${tileSize.height}px tile` : "Repeatable image tile"}</span></div>
+            </div>
+          </section>
 
           <section className="catalogue-section">
             <div className="section-heading compact-heading">
@@ -798,6 +934,11 @@ function App() {
                 colours={colourMap}
                 selectedBlockId={selectedBlockId}
                 selectedBlockIds={selectedBlockIds}
+                blockTokenDraft={blockTokenDraft}
+                activeTrackName={activeTrackName}
+                activeBlockReflected={activeBlockReflected}
+                onBlockTokenDraftChange={setBlockTokenDraft}
+                onCommitBlockToken={commitBlockToken}
                 onSelect={(entry, event) => handleThreadSelect("warp", entry, event)}
                 onInsert={(boundary) => addBlockAt("warp", boundary)}
                 onMove={(blockId, boundary) => moveBlock("warp", blockId, boundary)}
@@ -810,6 +951,11 @@ function App() {
                 colours={colourMap}
                 selectedBlockId={selectedBlockId}
                 selectedBlockIds={selectedBlockIds}
+                blockTokenDraft={blockTokenDraft}
+                activeTrackName={activeTrackName}
+                activeBlockReflected={activeBlockReflected}
+                onBlockTokenDraftChange={setBlockTokenDraft}
+                onCommitBlockToken={commitBlockToken}
                 onSelect={(entry, event) => handleThreadSelect("weft", entry, event)}
                 onInsert={(boundary) => addBlockAt("weft", boundary)}
                 onMove={(blockId, boundary) => moveBlock("weft", blockId, boundary)}
@@ -818,50 +964,21 @@ function App() {
               {model.weft === null && <p className="linked-thread-note"><Icon name="link" /> Weft mirrors the warp. Turn off “Same warp &amp; weft” to edit it independently.</p>}
             </div>
 
-            <div className="block-inspector">
-              <div className="inspector-title">
-                <div><span className="eyebrow">BLOCK INSPECTOR</span><h4>{selectedBlock ? `Block ${selectedBlock.colourId}${selectedBlock.length}` : "Select a block to edit"}</h4></div>
-                {selectedBlock && <button type="button" className="icon-button" onClick={() => { setSelectedBlockId(null); setSelectedBlockIds([]); setSelectionAnchor(null); setLengthDraft(""); }} aria-label="Clear block selection"><Icon name="x" /></button>}
+            <div className="thread-actions-bar">
+              <div className="inline-edit-guidance">
+                <strong>{selectedBlock ? `Selected block: ${selectedBlock.colourId}${selectedBlock.length}` : "Edit blocks directly"}</strong>
+                <span>Click a block and type its token, e.g. <code>a8</code>. Enter applies; Escape cancels. Invalid tokens are rejected.</span>
               </div>
-              {selectedBlock ? (
-                <div className="inspector-controls">
-                  <label>Colour
-                    <select value={selectedBlock.colourId} onChange={(event) => {
-                      const current = modelRef.current;
-                      const next = { ...current,
-                        warp: { ...current.warp, blocks: current.warp.blocks.map((block) => block.id === selectedBlock.id ? { ...block, colourId: event.target.value } : block) },
-                        weft: current.weft ? { ...current.weft, blocks: current.weft.blocks.map((block) => block.id === selectedBlock.id ? { ...block, colourId: event.target.value } : block) } : null,
-                      };
-                      applyModel(next);
-                    }}>
-                      {model.colours.map((colour) => <option key={colour.id} value={colour.id}>{colour.id} · {colour.hex}</option>)}
-                    </select>
-                  </label>
-                  <label>Run length
-                    <input
-                      type="number"
-                      min={1}
-                      max={100000}
-                      step={1}
-                      value={lengthDraft}
-                      onChange={(event) => setLengthDraft(event.target.value)}
-                      onBlur={() => {
-                        const value = Number(lengthDraft);
-                        if (Number.isSafeInteger(value) && value > 0 && value <= 100000) resizeBlock(selectedThreadName, selectedBlock.id, value);
-                        else setLengthDraft(String(selectedBlock.length));
-                      }}
-                      onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
-                    />
-                  </label>
-                  <button type="button" className="button button-danger button-small" onClick={() => deleteSelectedBlock(selectedThreadName)}><Icon name="trash" /> Delete block</button>
+              {selectedBlock && (
+                <div className="selected-block-actions">
+                  <button type="button" className="button button-danger button-small" onClick={() => deleteSelectedBlock(selectedThreadName)}><Icon name="trash" /> Delete</button>
+                  <button type="button" className="button button-quiet button-small" onClick={() => setSelectedBlockId(null)}>Done</button>
                 </div>
-              ) : (
-                <p className="inspector-empty">Click a block to change its colour or exact length. Shift-click a range of blocks to mark it as mirrored.</p>
               )}
               <div className="mirror-controls">
                 <div className="mirror-control-copy">
                   <strong>Mirrored section</strong>
-                  <span>{selectedBlockIds.length ? `${selectedBlockIds.length} source block${selectedBlockIds.length === 1 ? "" : "s"} selected` : "Select a contiguous range with Shift-click"}</span>
+                  <span>{selectedBlockIds.length ? `${selectedBlockIds.length} source block${selectedBlockIds.length === 1 ? "" : "s"} selected` : "Shift-click a range of blocks to select it"}</span>
                 </div>
                 <button type="button" className="button button-secondary button-small" disabled={!canUseSelectedRange} onClick={() => applyMirrorSelection(selectedThreadName)}><Icon name="scissors" /> Mirror selected range</button>
                 {(selectedThreadName === "warp" ? hasMirrorWarp : hasMirrorWeft) && (
@@ -902,36 +1019,7 @@ function App() {
             )}
           </section>
 
-          <section className="preview-section">
-            <div className="section-heading preview-heading">
-              <div>
-                <p className="eyebrow">THE WEAVE</p>
-                <h3>Repeat preview</h3>
-                <p>Your rendered tile, repeated to show the full rhythm of the sett.</p>
-              </div>
-              <div className="preview-controls">
-                <div className="zoom-control" aria-label="Preview zoom">
-                  {TILE_ZOOMS.map((value) => <button type="button" key={value} className={zoom === value ? "selected" : ""} onClick={() => setZoom(value)}>{value === 0.65 ? "Small" : value === 1 ? "100%" : "Large"}</button>)}
-                </div>
-                <button type="button" className="button button-quiet button-small" onClick={() => { previewPatternRef.current = ""; setEndpointError(null); setPreviewUrl(null); setPreviewNonce((value) => value + 1); }}><Icon name="refresh" /> Refresh</button>
-              </div>
-            </div>
-            <div className="preview-frame">
-              <div
-                className={`woven-preview ${previewUrl ? "has-image" : ""}`}
-                style={{
-                  backgroundImage: previewUrl ? `url("${previewUrl}")` : undefined,
-                  backgroundSize: previewUrl && tileSize ? `${Math.max(1, tileSize.width * zoom)}px ${Math.max(1, tileSize.height * zoom)}px` : undefined,
-                }}
-                role="img"
-                aria-label="Tartan tile repeated as a background preview"
-              >
-                {!previewUrl && <div className="preview-loading"><span className="spinner" /><strong>{endpointError ? "Preview unavailable" : "Rendering tartan…"}</strong><p>{endpointError ?? "Waiting for the weave endpoint."}</p></div>}
-                {previewUrl && endpointError && <div className="preview-warning">Last successful preview shown · {endpointError}</div>}
-              </div>
-              <div className="preview-caption"><span><span className="live-dot" /> {previewUrl && !parseError && !endpointError ? "Live from /weave" : parseError ? "Showing last valid pattern" : "Waiting for renderer"}</span><span>{tileSize ? `${tileSize.width} × ${tileSize.height}px tile` : "Repeatable image tile"}</span></div>
-            </div>
-          </section>
+
 
           <section className="export-section">
             <div className="section-heading">
