@@ -83,21 +83,23 @@ func TestRun_Serves(t *testing.T) {
 	t.Parallel()
 	addr, cancel, done := startServer(t, Run)
 
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+addr+weavePath(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", resp.StatusCode)
+	for _, path := range []string{weavePath(), "/random"} {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+addr+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("request failed on path %v: %v", path, err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected status 200 on path %v, got %d", path, resp.StatusCode)
+		}
 	}
 
 	cancel()
-	err = waitForRun(t, done)
+	err := waitForRun(t, done)
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
