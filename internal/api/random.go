@@ -21,7 +21,7 @@ import (
 // a reasonably sized screen. Where the same pattern was recorded under multiple names, I picked
 // one arbitrarily, as this isn't mean to be an authoritative source and I am no Lord Lyon.
 //
-//go:embed tartans.json
+//go:embed catalogue/tartans.json
 var tartansRaw []byte
 
 var errNilClock = errors.New("clock is nil")
